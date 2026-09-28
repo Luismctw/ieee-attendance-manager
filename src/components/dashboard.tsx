@@ -134,24 +134,13 @@ export function StudentDashboard() {
       setAttendanceMessage("Escribe tu número de control antes de registrar asistencia.");
       return;
     }
-    if (!supabase) {
-      setAttendanceMessage("Supabase no está configurado.");
-      return;
-    }
-    const { data: studentRow, error: studentError } = await supabase
-      .from("students")
-      .select("id")
-      .eq("control", student.control)
-      .single();
-    if (studentError || !studentRow) {
-      setAttendanceMessage("No encontramos ese número de control en el padrón.");
-      return;
-    }
-    const { error } = await supabase.from("attendances").insert({
-      meeting_id: meetingId,
-      student_id: studentRow.id,
+    const response = await fetch("/api/attendance", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId, control: student.control }),
     });
-    setAttendanceMessage(error?.code === "23505" ? "Esta asistencia ya estaba registrada." : error ? `No se pudo registrar: ${error.message}` : `Asistencia registrada para ${student.name}.`);
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    setAttendanceMessage(response.ok ? `Asistencia registrada para ${student.name}.` : result.error ?? "No se pudo registrar la asistencia.");
   }
 
   async function startScanner() {
@@ -208,6 +197,8 @@ export function AdminDashboard() {
   const [importOpen, setImportOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [preview, setPreview] = useState<Student[]>([]);
+  const [attendanceCount, setAttendanceCount] = useState(0);
+  const [justificationCount, setJustificationCount] = useState(0);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -218,6 +209,8 @@ export function AdminDashboard() {
     void supabase.from("students").select("*").order("name", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setStudents((data as DatabaseStudent[]).map(fromDatabaseStudent));
     });
+    void supabase.from("attendances").select("id", { count: "exact", head: true }).then(({ count }) => setAttendanceCount(count ?? 0));
+    void supabase.from("justifications").select("id", { count: "exact", head: true }).then(({ count }) => setJustificationCount(count ?? 0));
   }, []);
 
   function notify(message: string) {
@@ -269,15 +262,40 @@ export function AdminDashboard() {
     notify(`${next.length} alumnos disponibles en el padrón local.`);
   }
 
+  async function generateJustifications() {
+    const meeting = meetings.find((item) => item.status === "active") ?? meetings[0];
+    if (!meeting) {
+      notify("Primero crea una junta.");
+      return;
+    }
+    const response = await fetch("/api/justifications/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId: meeting.id }),
+    });
+    const result = await response.json().catch(() => ({})) as { created?: number; message?: string; error?: string };
+    if (!response.ok) {
+      notify(result.error ?? "No se pudieron generar los justificantes.");
+      return;
+    }
+    if (supabase) {
+      const { count } = await supabase.from("justifications").select("id", { count: "exact", head: true });
+      setJustificationCount(count ?? 0);
+    } else {
+      setJustificationCount((current) => current + (result.created ?? 0));
+    }
+    notify(result.message ?? `${result.created ?? 0} justificantes generados.`);
+  }
+
   return (
     <div className="space-y-8">
       {notice && <div role="status" className="fixed right-5 top-5 z-30 max-w-sm rounded-2xl border border-cyan-400/30 bg-slate-900 px-5 py-4 text-sm text-cyan-100 shadow-2xl">{notice}</div>}
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{[["Juntas", meetings.length], ["Alumnos", students.length], ["Pendientes", "0"], ["Justificantes", "0"]].map(([label, value]) => <div key={String(label)} className="rounded-3xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">{label}</p><p className="mt-4 text-3xl font-bold text-white">{value}</p><p className="mt-2 text-sm text-slate-500">{Number(value) ? "Información disponible" : "Sin datos cargados"}</p></div>)}</section>
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{[["Juntas", meetings.length], ["Alumnos", students.length], ["Asistencias", attendanceCount], ["Justificantes", justificationCount]].map(([label, value]) => <div key={String(label)} className="rounded-3xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">{label}</p><p className="mt-4 text-3xl font-bold text-white">{value}</p><p className="mt-2 text-sm text-slate-500">{Number(value) ? "Información disponible" : "Sin datos cargados"}</p></div>)}</section>
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Operación</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meetings.length ? <div className="space-y-3">{meetings.map((meeting) => <div key={meeting.id} className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white">{meeting.title}</p><p className="text-sm text-slate-400">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${meeting.status === "active" ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{meeting.status === "active" ? "Activa" : "Programada"}</span></div>)}</div> : <EmptyState description="Crea una junta para generar un QR, activar el registro y comenzar a crecer tu historial." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Datos</p><h2 className="mt-2 text-2xl font-semibold text-white">Padrón de alumnos</h2><p className="mt-3 text-sm leading-6 text-slate-400">Importa el Excel una vez y conserva el padrón en este dispositivo mientras conectamos la base de datos.</p><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /><button onClick={() => fileInput.current?.click()} className="mt-5 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/20">Importar Excel</button>{students.length > 0 && <p className="mt-3 text-xs text-emerald-300">{students.length} registros cargados</p>}</div>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${students.length} alumnos listos para registrar asistencia.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Ver alumnos" : "Importar Excel"} onAction={() => students.length ? notify("La tabla completa estará disponible en la siguiente vista.") : fileInput.current?.click()} /></div><EmptyPanel title="Justificantes" eyebrow="Generación" description="Se generarán automáticamente al cruzar asistencia con horarios y agrupar por materia." /></section>
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${attendanceCount} asistencias registradas de ${students.length} alumnos.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Actualizar datos" : "Importar Excel"} onAction={() => students.length ? window.location.reload() : fileInput.current?.click()} /></div><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Generación</p><h3 className="mt-2 text-2xl font-semibold text-white">Justificantes</h3><EmptyState description={justificationCount ? `${justificationCount} justificantes guardados.` : "Cruza las asistencias con las materias y horarios importados."} action="Generar justificantes" onAction={generateJustifications} /></div></section>
       {meetingOpen && <MeetingModal onClose={() => setMeetingOpen(false)} onSubmit={createMeeting} />}
       {importOpen && <ImportModal rows={preview} onCancel={() => setImportOpen(false)} onConfirm={confirmImport} />}
     </div>

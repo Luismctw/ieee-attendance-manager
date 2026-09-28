@@ -9,6 +9,8 @@ Aplicación web para registrar asistencia a juntas IEEE mediante QR y preparar j
 - `/admin` — protegida por PIN; permite crear juntas, generar QR e importar el padrón.
 - El padrón y las juntas se guardan temporalmente en `localStorage` como respaldo; con las variables de Supabase configuradas también se sincronizan con PostgreSQL.
 - La importación acepta `.xlsx`, `.xls` y `.csv`, muestra una vista previa y normaliza columnas comunes como `Nombre`, `Control`, `Correo`, `Carrera`, `Grupo`, `Materia`, `Profesor`, `Hora inicio` y `Hora fin`.
+- La asistencia se valida en servidor: junta activa, fecha/hora de México, alumno existente y duplicados.
+- El panel administrativo consulta contadores reales y puede generar justificantes cruzando la asistencia con los horarios importados.
 
 ## Desarrollo local
 
@@ -31,4 +33,4 @@ Abre el proyecto de Supabase, entra en **SQL Editor**, pega el contenido de [`su
 
 ## Siguiente etapa de crecimiento
 
-La interfaz ya separa la experiencia de alumno y administración y tiene contratos de datos claros (`Meeting` y `Student`). La siguiente etapa es añadir autenticación institucional, restringir RLS por usuario y persistir asistencias y horarios por alumno.
+La interfaz ya separa la experiencia de alumno y administración, valida la asistencia en una Route Handler y genera justificantes con solape de horarios. La siguiente etapa es añadir autenticación institucional, restringir RLS por usuario, mostrar el detalle completo de asistentes y generar el PDF oficial.
