@@ -4,7 +4,8 @@ import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
-import { ChangeEvent, FormEvent, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { DatabaseMeeting, DatabaseStudent, supabase } from "@/lib/supabase";
 
 type Meeting = {
   id: string;
@@ -105,15 +106,30 @@ export function Shell({ role, children }: { role: "student" | "admin"; children:
 export function StudentDashboard() {
   const [meetings] = useState<Meeting[]>(() => readStorage<Meeting[]>(MEETINGS_KEY, []));
   const [students] = useState<Student[]>(() => readStorage<Student[]>(STUDENTS_KEY, []));
+  const [cloudMeetings, setCloudMeetings] = useState<Meeting[]>([]);
+  const [cloudStudents, setCloudStudents] = useState<Student[]>([]);
 
-  const activeMeeting = meetings.find((meeting) => meeting.status === "active") ?? meetings[0];
-  const currentStudent = students[0];
+  useEffect(() => {
+    if (!supabase) return;
+    void Promise.all([
+      supabase.from("meetings").select("*").order("meeting_date", { ascending: true }),
+      supabase.from("students").select("*").order("name", { ascending: true }),
+    ]).then(([meetingResult, studentResult]) => {
+      if (!meetingResult.error) setCloudMeetings((meetingResult.data as DatabaseMeeting[]).map(fromDatabaseMeeting));
+      if (!studentResult.error) setCloudStudents((studentResult.data as DatabaseStudent[]).map(fromDatabaseStudent));
+    });
+  }, []);
+
+  const availableMeetings = cloudMeetings.length ? cloudMeetings : meetings;
+  const availableStudents = cloudStudents.length ? cloudStudents : students;
+  const activeMeeting = availableMeetings.find((meeting) => meeting.status === "active") ?? availableMeetings[0];
+  const currentStudent = availableStudents[0];
 
   return (
     <div className="space-y-8">
       <section className="grid gap-5 md:grid-cols-3">
         <StatCard title="Próxima junta" value={activeMeeting?.title ?? "Sin juntas"} subtitle={activeMeeting ? `${activeMeeting.date} · ${activeMeeting.start} - ${activeMeeting.end}` : "El administrador aún no ha creado una junta"} tone="cyan" />
-        <StatCard title="Alumnos registrados" value={String(students.length)} subtitle={students.length ? "Padrón disponible" : "Carga el Excel para comenzar"} tone="emerald" />
+        <StatCard title="Alumnos registrados" value={String(availableStudents.length)} subtitle={availableStudents.length ? "Padrón disponible" : "Carga el Excel para comenzar"} tone="emerald" />
         <StatCard title="Justificantes" value="0" subtitle="Se calcularán al registrar asistencia" tone="violet" />
       </section>
       <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
@@ -136,6 +152,16 @@ export function AdminDashboard() {
   const [preview, setPreview] = useState<Student[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
 
+  useEffect(() => {
+    if (!supabase) return;
+    void supabase.from("meetings").select("*").order("meeting_date", { ascending: true }).then(({ data, error }) => {
+      if (!error && data) setMeetings((data as DatabaseMeeting[]).map(fromDatabaseMeeting));
+    });
+    void supabase.from("students").select("*").order("name", { ascending: true }).then(({ data, error }) => {
+      if (!error && data) setStudents((data as DatabaseStudent[]).map(fromDatabaseStudent));
+    });
+  }, []);
+
   function notify(message: string) {
     setNotice(message);
     window.setTimeout(() => setNotice(""), 4000);
@@ -149,6 +175,10 @@ export function AdminDashboard() {
     const next = [meeting, ...meetings.map((item) => ({ ...item, status: "scheduled" as const }))];
     setMeetings(next);
     writeStorage(MEETINGS_KEY, next);
+    if (supabase) {
+      const { error } = await supabase.from("meetings").upsert(toDatabaseMeeting(meeting), { onConflict: "id" });
+      if (error) notify(`Junta creada localmente; Supabase respondió: ${error.message}`);
+    }
     setMeetingOpen(false);
     notify("Junta creada y QR generado correctamente.");
   }
@@ -168,10 +198,14 @@ export function AdminDashboard() {
     if (fileInput.current) fileInput.current.value = "";
   }
 
-  function confirmImport() {
+  async function confirmImport() {
     const next = [...students, ...preview];
     setStudents(next);
     writeStorage(STUDENTS_KEY, next);
+    if (supabase) {
+      const { error } = await supabase.from("students").upsert(preview.map(toDatabaseStudent), { onConflict: "control" });
+      if (error) notify(`Importación local completada; Supabase respondió: ${error.message}`);
+    }
     setPreview([]);
     setImportOpen(false);
     notify(`${next.length} alumnos disponibles en el padrón local.`);
@@ -215,6 +249,60 @@ function readStorage<T>(key: string, fallback: T): T {
 
 function writeStorage<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function fromDatabaseMeeting(row: DatabaseMeeting): Meeting {
+  return {
+    id: row.id,
+    title: row.title,
+    date: row.meeting_date,
+    start: row.start_time,
+    end: row.end_time,
+    place: row.place,
+    status: row.status,
+    qrDataUrl: row.qr_data_url ?? undefined,
+  };
+}
+
+function fromDatabaseStudent(row: DatabaseStudent): Student {
+  return {
+    name: row.name,
+    control: row.control,
+    email: row.email ?? "",
+    career: row.career ?? "",
+    group: row.group_name ?? "",
+    subject: row.subject ?? "",
+    professor: row.professor ?? "",
+    start: row.start_time ?? "",
+    end: row.end_time ?? "",
+  };
+}
+
+function toDatabaseMeeting(meeting: Meeting): DatabaseMeeting {
+  return {
+    id: meeting.id,
+    title: meeting.title,
+    meeting_date: meeting.date,
+    start_time: meeting.start,
+    end_time: meeting.end,
+    place: meeting.place,
+    status: meeting.status,
+    qr_data_url: meeting.qrDataUrl ?? null,
+  };
+}
+
+function toDatabaseStudent(student: Student): DatabaseStudent {
+  return {
+    name: student.name || "Sin nombre",
+    control: student.control || `sin-control-${crypto.randomUUID()}`,
+    email: student.email,
+    career: student.career,
+    group_name: student.group,
+    subject: student.subject ?? "",
+    professor: student.professor ?? "",
+    start_time: student.start ?? "",
+    end_time: student.end ?? "",
+  };
 }
 
 function EmptyPanel({ title, eyebrow, description }: { title: string; eyebrow: string; description: string }) {
