@@ -1,7 +1,7 @@
 create extension if not exists pgcrypto;
 
 alter table public.meetings drop constraint if exists meetings_status_check;
-alter table public.meetings add constraint meetings_status_check check (status in ('active', 'scheduled', 'closed'));
+alter table public.meetings add constraint meetings_status_check check (status in ('active', 'scheduled', 'closed', 'cancelled'));
 
 create table if not exists public.admin_settings (
   id boolean primary key default true check (id),
@@ -38,6 +38,17 @@ $$;
 create or replace function public.student_logout(p_token text)
 returns void language sql security definer set search_path = public
 as $$ delete from student_sessions where token_hash = encode(extensions.digest(p_token, 'sha256'::text), 'hex'); $$;
+
+create or replace function public.student_change_pin(p_token text, p_new_pin text)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare student_id uuid;
+begin
+  if p_new_pin !~ '^[0-9]{4,12}$' then raise exception 'El PIN debe tener de 4 a 12 dígitos'; end if;
+  select s.student_id into student_id from student_sessions s where s.token_hash=encode(extensions.digest(p_token, 'sha256'::text),'hex') and s.expires_at > now();
+  if student_id is null then raise exception 'Sesión expirada'; end if;
+  update students set pin_hash=extensions.crypt(p_new_pin, extensions.gen_salt('bf')) where id=student_id;
+end; $$;
 
 create or replace function public.register_student_attendance(p_token text, p_meeting_id uuid)
 returns jsonb language plpgsql security definer set search_path = public
@@ -125,6 +136,34 @@ as $$ begin
   if not found then raise exception 'Alumno no encontrado'; end if;
 end; $$;
 
+create or replace function public.admin_upsert_student(p_pin text, p_student jsonb)
+returns void language plpgsql security definer set search_path = public
+as $$ begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  update students set name=coalesce(p_student->>'name',name), email=coalesce(p_student->>'email',''),
+    career=coalesce(p_student->>'career',''), group_name=coalesce(p_student->>'group',''),
+    subject=coalesce(p_student->>'subject',''), professor=coalesce(p_student->>'professor',''),
+    start_time=nullif(p_student->>'start','')::time, end_time=nullif(p_student->>'end','')
+  where control=trim(p_student->>'control');
+  if not found then raise exception 'Alumno no encontrado'; end if;
+end; $$;
+
+create or replace function public.admin_delete_student(p_pin text, p_control text)
+returns void language plpgsql security definer set search_path = public
+as $$ begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  delete from students where control=trim(p_control);
+  if not found then raise exception 'Alumno no encontrado'; end if;
+end; $$;
+
+create or replace function public.admin_set_meeting_status(p_pin text, p_meeting_id uuid, p_status text)
+returns void language plpgsql security definer set search_path = public
+as $$ begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  if p_status not in ('active','scheduled','closed','cancelled') then raise exception 'Estado inválido'; end if;
+  update meetings set status=p_status where id=p_meeting_id;
+end; $$;
+
 create or replace function public.admin_generate_justifications(p_pin text, p_meeting_id uuid)
 returns integer language plpgsql security definer set search_path = public
 as $$
@@ -145,6 +184,7 @@ end; $$;
 
 grant execute on function public.student_login(text,text) to anon, authenticated;
 grant execute on function public.student_logout(text) to anon, authenticated;
+grant execute on function public.student_change_pin(text,text) to anon, authenticated;
 grant execute on function public.register_student_attendance(text,uuid) to anon, authenticated;
 grant execute on function public.admin_import_students(text,jsonb) to anon, authenticated;
 grant execute on function public.admin_overview(text) to anon, authenticated;
@@ -152,3 +192,6 @@ grant execute on function public.admin_update_justification(text,uuid,text) to a
 grant execute on function public.admin_generate_justifications(text,uuid) to anon, authenticated;
 grant execute on function public.admin_close_meeting(text,uuid) to anon, authenticated;
 grant execute on function public.admin_set_student_pin(text,text,text) to anon, authenticated;
+grant execute on function public.admin_upsert_student(text,jsonb) to anon, authenticated;
+grant execute on function public.admin_delete_student(text,text) to anon, authenticated;
+grant execute on function public.admin_set_meeting_status(text,uuid,text) to anon, authenticated;

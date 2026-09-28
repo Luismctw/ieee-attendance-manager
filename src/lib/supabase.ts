@@ -15,7 +15,7 @@ export type DatabaseMeeting = {
   start_time: string;
   end_time: string;
   place: string;
-  status: "active" | "scheduled" | "closed";
+  status: "active" | "scheduled" | "closed" | "cancelled";
   qr_data_url: string | null;
 };
 
