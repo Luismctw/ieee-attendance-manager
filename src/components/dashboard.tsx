@@ -1,8 +1,36 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
-import { FormEvent, useRef, useState } from "react";
+import QRCode from "qrcode";
+import { ChangeEvent, FormEvent, useRef, useState } from "react";
+
+type Meeting = {
+  id: string;
+  title: string;
+  date: string;
+  start: string;
+  end: string;
+  place: string;
+  status: "active" | "scheduled";
+  qrDataUrl?: string;
+};
+
+type Student = {
+  name: string;
+  control: string;
+  email: string;
+  career: string;
+  group: string;
+  subject?: string;
+  professor?: string;
+  start?: string;
+  end?: string;
+};
+
+const MEETINGS_KEY = "ieee-attendance-meetings";
+const STUDENTS_KEY = "ieee-attendance-students";
 
 export function AdminLogin() {
   const [pin, setPin] = useState("");
@@ -75,67 +103,126 @@ export function Shell({ role, children }: { role: "student" | "admin"; children:
 }
 
 export function StudentDashboard() {
-  return <div className="space-y-8"><section className="grid gap-5 md:grid-cols-3"><StatCard title="Próxima junta" value="Sin juntas" subtitle="El administrador aún no ha creado una junta" tone="cyan" /><StatCard title="Asistencias" value="0" subtitle="Los datos aparecerán al cargar alumnos" tone="emerald" /><StatCard title="Justificantes" value="0" subtitle="Todavía no hay registros" tone="violet" /></section><section className="grid gap-6 xl:grid-cols-[1.4fr_0.6fr]"><EmptyPanel title="Escanear asistencia" eyebrow="Registro" description="Cuando exista una junta activa, aquí aparecerá su QR para registrar la asistencia." action="Esperando una junta activa" /><EmptyPanel title="Actividad" eyebrow="Historial" description="Tu actividad aparecerá después de cargar el padrón y registrar una asistencia." /></section><section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><EmptyPanel title="Mi asistencia" eyebrow="Historial" description="No hay registros de asistencia todavía." /><EmptyPanel title="Mis clases" eyebrow="Horario" description="El horario de clases se cargará desde el archivo de alumnos." /></section></div>;
-}
+  const [meetings] = useState<Meeting[]>(() => readStorage<Meeting[]>(MEETINGS_KEY, []));
+  const [students] = useState<Student[]>(() => readStorage<Student[]>(STUDENTS_KEY, []));
 
-export function AdminDashboard() {
-  const [meetingOpen, setMeetingOpen] = useState(false);
-  const [meeting, setMeeting] = useState<{ title: string; date: string; start: string; end: string; place: string } | null>(null);
-  const [notice, setNotice] = useState("");
-  const fileInput = useRef<HTMLInputElement>(null);
-
-  function notify(message: string) {
-    setNotice(message);
-    window.setTimeout(() => setNotice(""), 3500);
-  }
-
-  function createMeeting(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const data = new FormData(event.currentTarget);
-    setMeeting({
-      title: String(data.get("title")),
-      date: String(data.get("date")),
-      start: String(data.get("start")),
-      end: String(data.get("end")),
-      place: String(data.get("place")),
-    });
-    setMeetingOpen(false);
-    notify("Junta creada. El QR ya está disponible para mostrarlo.");
-  }
-
-  function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (file) notify(`Archivo "${file.name}" seleccionado. La importación quedará lista al conectar la base de datos.`);
-  }
-
-  function scrollTo(id: string, message: string) {
-    document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "center" });
-    notify(message);
-  }
+  const activeMeeting = meetings.find((meeting) => meeting.status === "active") ?? meetings[0];
+  const currentStudent = students[0];
 
   return (
     <div className="space-y-8">
-      {notice && <div role="status" className="fixed right-5 top-5 z-20 max-w-sm rounded-2xl border border-cyan-400/30 bg-slate-900 px-5 py-4 text-sm text-cyan-100 shadow-2xl">{notice}</div>}
-      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{["Juntas activas", "Asistencias", "Pendientes", "Justificantes"].map((label, index) => <div key={label} className="rounded-3xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">{label}</p><p className="mt-4 text-3xl font-bold text-white">{index === 0 && meeting ? "1" : "0"}</p><p className="mt-2 text-sm text-slate-500">{meeting && index === 0 ? "Lista para recibir alumnos" : "Sin datos cargados"}</p></div>)}</section>
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div id="meetings" className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Control</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas activas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meeting ? <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><div className="flex items-start justify-between gap-4"><div><p className="font-semibold text-white">{meeting.title}</p><p className="mt-1 text-sm text-slate-300">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p></div><span className="rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs text-emerald-300">Activa</span></div><button onClick={() => notify("QR generado para la junta activa.")} className="mt-4 rounded-full border border-cyan-400/30 px-4 py-2 text-sm text-cyan-200 hover:bg-cyan-500/10">Generar QR</button></div> : <EmptyState description="Crea la primera junta para generar su QR y comenzar a registrar asistencias." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
-        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Acciones rápidas</p><div className="mt-5 space-y-3">{[["Generar QR", () => meeting ? notify("QR generado para la junta activa.") : notify("Primero crea una junta.")], ["Exportar reporte", () => notify("No hay asistencias para exportar.")], ["Ver lista completa", () => scrollTo("attendance", "La lista de registrados está más abajo.")], ["Revisar justificantes", () => scrollTo("justifications", "La sección de justificantes está más abajo.")]].map(([action, callback]) => <button key={String(action)} onClick={callback as () => void} className="flex w-full items-center justify-between rounded-2xl border border-slate-800 bg-slate-950 px-4 py-3 text-left text-sm text-slate-200 hover:bg-slate-800"><span>{String(action)}</span><span className="text-cyan-300">→</span></button>)}</div></div>
+      <section className="grid gap-5 md:grid-cols-3">
+        <StatCard title="Próxima junta" value={activeMeeting?.title ?? "Sin juntas"} subtitle={activeMeeting ? `${activeMeeting.date} · ${activeMeeting.start} - ${activeMeeting.end}` : "El administrador aún no ha creado una junta"} tone="cyan" />
+        <StatCard title="Alumnos registrados" value={String(students.length)} subtitle={students.length ? "Padrón disponible" : "Carga el Excel para comenzar"} tone="emerald" />
+        <StatCard title="Justificantes" value="0" subtitle="Se calcularán al registrar asistencia" tone="violet" />
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div id="attendance" className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description="El padrón está vacío. Carga el Excel de alumnos para comenzar." action="Importar Excel" onAction={() => fileInput.current?.click()} /><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /></div>
-        <div id="justifications" className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Generación</p><h3 className="mt-2 text-2xl font-semibold text-white">Justificantes</h3><EmptyState description="Se generarán después de registrar asistencias y cargar los horarios." action="Ver requisitos" onAction={() => notify("Cada alumno deberá incluir materia, grupo, profesor y horario.")} /></div>
+      <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
+          <div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Registro</p><h2 className="mt-2 text-2xl font-semibold text-white">Escanear asistencia</h2></div><span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-200">{activeMeeting ? "QR disponible" : "Sin junta activa"}</span></div>
+          {activeMeeting ? <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr]"><div className="flex items-center justify-center rounded-2xl border border-slate-700 bg-white p-5"><Image src={activeMeeting.qrDataUrl ?? ""} alt="Código QR de asistencia" width={192} height={192} unoptimized /></div><div className="space-y-4"><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Junta disponible</p><p className="mt-2 text-xl font-semibold text-white">{activeMeeting.title}</p><p className="mt-2 text-sm text-slate-300">{activeMeeting.date} · {activeMeeting.start} - {activeMeeting.end} · {activeMeeting.place}</p></div><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Alumno identificado</p><p className="mt-2 font-semibold text-white">{currentStudent?.name ?? "Pendiente de importar padrón"}</p><p className="mt-1 text-sm text-slate-400">{currentStudent?.email ?? "Los alumnos aparecerán al cargar el Excel."}</p></div><button className="rounded-full bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Registrar asistencia</button></div></div> : <EmptyState description="Cuando exista una junta activa, aquí aparecerá su QR para registrar la asistencia." />}</div>
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Actividad</p><EmptyState description="Tu historial de asistencia aparecerá aquí después del primer registro." /></div>
       </section>
-      {meetingOpen && <div className="fixed inset-0 z-10 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={createMeeting} className="w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Nueva junta</p><h2 className="mt-2 text-2xl font-semibold text-white">Configurar reunión</h2></div><button type="button" onClick={() => setMeetingOpen(false)} className="text-2xl text-slate-400 hover:text-white">×</button></div><div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-sm text-slate-300 sm:col-span-2">Título<input required name="title" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Reunión General IEEE" /></label><label className="text-sm text-slate-300">Fecha<input required name="date" type="date" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Lugar<input required name="place" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Auditorio B" /></label><label className="text-sm text-slate-300">Inicio<input required name="start" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Fin<input required name="end" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={() => setMeetingOpen(false)} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancelar</button><button className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Crear junta</button></div></form></div>}
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><EmptyPanel title="Mi asistencia" eyebrow="Historial" description="No hay registros de asistencia todavía." /><EmptyPanel title="Mis clases" eyebrow="Horario" description={currentStudent ? "Tu horario se tomará de los datos importados." : "El horario de clases se cargará desde el archivo de alumnos."} /></section>
     </div>
   );
 }
 
-function EmptyState({ description, action, onAction }: { description: string; action?: string; onAction?: () => void }) {
-  return <div className="mt-6 rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center"><p className="text-sm leading-6 text-slate-400">{description}</p>{action && <button onClick={onAction} className="mt-5 rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">{action}</button>}</div>;
+export function AdminDashboard() {
+  const [meetings, setMeetings] = useState<Meeting[]>(() => readStorage<Meeting[]>(MEETINGS_KEY, []));
+  const [students, setStudents] = useState<Student[]>(() => readStorage<Student[]>(STUDENTS_KEY, []));
+  const [meetingOpen, setMeetingOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [preview, setPreview] = useState<Student[]>([]);
+  const fileInput = useRef<HTMLInputElement>(null);
+
+  function notify(message: string) {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 4000);
+  }
+
+  async function createMeeting(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const meeting: Meeting = { id: crypto.randomUUID(), title: String(data.get("title")), date: String(data.get("date")), start: String(data.get("start")), end: String(data.get("end")), place: String(data.get("place")), status: "active" };
+    meeting.qrDataUrl = await QRCode.toDataURL(`${window.location.origin}/alumno?meeting=${meeting.id}`, { width: 280, margin: 2, color: { dark: "#0f172a", light: "#ffffff" } });
+    const next = [meeting, ...meetings.map((item) => ({ ...item, status: "scheduled" as const }))];
+    setMeetings(next);
+    writeStorage(MEETINGS_KEY, next);
+    setMeetingOpen(false);
+    notify("Junta creada y QR generado correctamente.");
+  }
+
+  async function handleFile(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const { readSheet } = await import("read-excel-file/browser");
+    const rows = await readSheet(file);
+    const [headerRow = [], ...dataRows] = rows;
+    const headers = headerRow.map((header) => String(header ?? ""));
+    const parsed = dataRows
+      .map((row) => normalizeStudent(Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))))
+      .filter((row) => row.name || row.control);
+    setPreview(parsed);
+    setImportOpen(true);
+    if (fileInput.current) fileInput.current.value = "";
+  }
+
+  function confirmImport() {
+    const next = [...students, ...preview];
+    setStudents(next);
+    writeStorage(STUDENTS_KEY, next);
+    setPreview([]);
+    setImportOpen(false);
+    notify(`${next.length} alumnos disponibles en el padrón local.`);
+  }
+
+  return (
+    <div className="space-y-8">
+      {notice && <div role="status" className="fixed right-5 top-5 z-30 max-w-sm rounded-2xl border border-cyan-400/30 bg-slate-900 px-5 py-4 text-sm text-cyan-100 shadow-2xl">{notice}</div>}
+      <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{[["Juntas", meetings.length], ["Alumnos", students.length], ["Pendientes", "0"], ["Justificantes", "0"]].map(([label, value]) => <div key={String(label)} className="rounded-3xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">{label}</p><p className="mt-4 text-3xl font-bold text-white">{value}</p><p className="mt-2 text-sm text-slate-500">{Number(value) ? "Información disponible" : "Sin datos cargados"}</p></div>)}</section>
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Operación</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meetings.length ? <div className="space-y-3">{meetings.map((meeting) => <div key={meeting.id} className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white">{meeting.title}</p><p className="text-sm text-slate-400">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${meeting.status === "active" ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{meeting.status === "active" ? "Activa" : "Programada"}</span></div>)}</div> : <EmptyState description="Crea una junta para generar un QR, activar el registro y comenzar a crecer tu historial." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Datos</p><h2 className="mt-2 text-2xl font-semibold text-white">Padrón de alumnos</h2><p className="mt-3 text-sm leading-6 text-slate-400">Importa el Excel una vez y conserva el padrón en este dispositivo mientras conectamos la base de datos.</p><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /><button onClick={() => fileInput.current?.click()} className="mt-5 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/20">Importar Excel</button>{students.length > 0 && <p className="mt-3 text-xs text-emerald-300">{students.length} registros cargados</p>}</div>
+      </section>
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${students.length} alumnos listos para registrar asistencia.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Ver alumnos" : "Importar Excel"} onAction={() => students.length ? notify("La tabla completa estará disponible en la siguiente vista.") : fileInput.current?.click()} /></div><EmptyPanel title="Justificantes" eyebrow="Generación" description="Se generarán automáticamente al cruzar asistencia con horarios y agrupar por materia." /></section>
+      {meetingOpen && <MeetingModal onClose={() => setMeetingOpen(false)} onSubmit={createMeeting} />}
+      {importOpen && <ImportModal rows={preview} onCancel={() => setImportOpen(false)} onConfirm={confirmImport} />}
+    </div>
+  );
 }
 
-function EmptyPanel({ title, eyebrow, description, action }: { title: string; eyebrow: string; description: string; action?: string }) {
-  return <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p><h2 className="mt-2 text-2xl font-semibold text-white">{title}</h2><EmptyState description={description} action={action} /></div>;
+function MeetingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  return <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={onSubmit} className="w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Nueva junta</p><h2 className="mt-2 text-2xl font-semibold text-white">Configurar reunión</h2></div><button type="button" onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button></div><div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-sm text-slate-300 sm:col-span-2">Título<input required name="title" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Reunión General IEEE" /></label><label className="text-sm text-slate-300">Fecha<input required name="date" type="date" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Lugar<input required name="place" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Auditorio B" /></label><label className="text-sm text-slate-300">Inicio<input required name="start" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Fin<input required name="end" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancelar</button><button className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Crear junta</button></div></form></div>;
+}
+
+function ImportModal({ rows, onCancel, onConfirm }: { rows: Student[]; onCancel: () => void; onConfirm: () => void }) {
+  return <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/80 p-4"><div className="w-full max-w-3xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Importación</p><h2 className="mt-2 text-2xl font-semibold text-white">Vista previa del padrón</h2><p className="mt-1 text-sm text-slate-400">{rows.length} filas detectadas</p></div><button onClick={onCancel} className="text-2xl text-slate-400 hover:text-white">×</button></div><div className="mt-6 max-h-80 overflow-auto rounded-2xl border border-slate-800"><table className="min-w-full text-left text-sm"><thead className="sticky top-0 bg-slate-950 text-slate-300"><tr><th className="px-4 py-3">Nombre</th><th className="px-4 py-3">Control</th><th className="px-4 py-3">Correo</th><th className="px-4 py-3">Grupo</th></tr></thead><tbody className="divide-y divide-slate-800">{rows.slice(0, 20).map((row, index) => <tr key={`${row.control}-${index}`}><td className="px-4 py-3 text-slate-200">{row.name || "Sin nombre"}</td><td className="px-4 py-3 text-slate-300">{row.control || "—"}</td><td className="px-4 py-3 text-slate-300">{row.email || "—"}</td><td className="px-4 py-3 text-slate-300">{row.group || "—"}</td></tr>)}</tbody></table></div><div className="mt-6 flex justify-end gap-3"><button onClick={onCancel} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancelar</button><button onClick={onConfirm} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Confirmar importación</button></div></div></div>;
+}
+
+function normalizeStudent(row: Record<string, unknown>): Student {
+  const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""), String(value ?? "").trim()]));
+  return { name: pick(normalized, ["nombre", "nombrecompleto", "alumno", "name"]), control: pick(normalized, ["control", "numerodecontrol", "nocontrol", "matricula"]), email: pick(normalized, ["correo", "email", "correoinstitucional"]), career: pick(normalized, ["carrera", "career"]), group: pick(normalized, ["grupo", "group"]), subject: pick(normalized, ["materia", "subject"]), professor: pick(normalized, ["profesor", "docente", "professor"]), start: pick(normalized, ["horainicio", "inicio", "start"]), end: pick(normalized, ["horafin", "fin", "end"]) };
+}
+
+function pick(row: Record<string, string>, keys: string[]) {
+  return keys.map((key) => row[key]).find(Boolean) ?? "";
+}
+
+function readStorage<T>(key: string, fallback: T): T {
+  try { const value = window.localStorage.getItem(key); return value ? JSON.parse(value) as T : fallback; } catch { return fallback; }
+}
+
+function writeStorage<T>(key: string, value: T) {
+  window.localStorage.setItem(key, JSON.stringify(value));
+}
+
+function EmptyPanel({ title, eyebrow, description }: { title: string; eyebrow: string; description: string }) {
+  return <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p><h2 className="mt-2 text-2xl font-semibold text-white">{title}</h2><EmptyState description={description} /></div>;
+}
+
+function EmptyState({ description, action, onAction }: { description: string; action?: string; onAction?: () => void }) {
+  return <div className="mt-6 rounded-2xl border border-dashed border-slate-700 bg-slate-950 p-8 text-center"><p className="text-sm leading-6 text-slate-400">{description}</p>{action && <button onClick={onAction} className="mt-5 rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">{action}</button>}</div>;
 }
 
 function StatCard({ title, value, subtitle, tone }: { title: string; value: string; subtitle: string; tone: "cyan" | "emerald" | "violet" }) {
