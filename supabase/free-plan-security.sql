@@ -6,7 +6,7 @@ create table if not exists public.admin_settings (
 );
 
 insert into public.admin_settings (id, pin_hash)
-values (true, crypt('7551', gen_salt('bf')))
+values (true, extensions.crypt('7551', extensions.gen_salt('bf')))
 on conflict (id) do nothing;
 
 alter table public.admin_settings enable row level security;
@@ -19,22 +19,22 @@ set search_path = public
 as $$
 declare
   student_row students%rowtype;
-  token text := encode(gen_random_bytes(32), 'hex');
+  token text := encode(extensions.gen_random_bytes(32), 'hex');
 begin
   select * into student_row from students
   where control = trim(p_control) and pin_hash is not null
-    and pin_hash = crypt(p_pin, pin_hash);
+    and pin_hash = extensions.crypt(p_pin, pin_hash);
   if not found then raise exception 'Credenciales inválidas' using errcode = '28P01'; end if;
   delete from student_sessions where expires_at < now();
   insert into student_sessions (student_id, token_hash, expires_at)
-  values (student_row.id, encode(digest(token, 'sha256'), 'hex'), now() + interval '12 hours');
+  values (student_row.id, encode(extensions.digest(token, 'sha256'::text), 'hex'), now() + interval '12 hours');
   return jsonb_build_object('token', token, 'name', student_row.name, 'control', student_row.control);
 end;
 $$;
 
 create or replace function public.student_logout(p_token text)
 returns void language sql security definer set search_path = public
-as $$ delete from student_sessions where token_hash = encode(digest(p_token, 'sha256'), 'hex'); $$;
+as $$ delete from student_sessions where token_hash = encode(extensions.digest(p_token, 'sha256'::text), 'hex'); $$;
 
 create or replace function public.register_student_attendance(p_token text, p_meeting_id uuid)
 returns jsonb language plpgsql security definer set search_path = public
@@ -45,7 +45,7 @@ declare
   student_row students%rowtype;
 begin
   select * into session_row from student_sessions
-  where token_hash = encode(digest(p_token, 'sha256'), 'hex') and expires_at > now();
+  where token_hash = encode(extensions.digest(p_token, 'sha256'::text), 'hex') and expires_at > now();
   if not found then raise exception 'Sesión expirada' using errcode = '28000'; end if;
   select * into meeting_row from meetings where id = p_meeting_id;
   if not found then raise exception 'La junta no existe'; end if;
@@ -62,7 +62,7 @@ $$;
 
 create or replace function public.admin_pin_valid(p_pin text)
 returns boolean language sql security definer set search_path = public
-as $$ select exists (select 1 from admin_settings where id and pin_hash = crypt(p_pin, pin_hash)); $$;
+as $$ select exists (select 1 from admin_settings where id and pin_hash = extensions.crypt(p_pin, pin_hash)); $$;
 
 create or replace function public.admin_import_students(p_pin text, p_students jsonb)
 returns integer language plpgsql security definer set search_path = public
@@ -75,7 +75,7 @@ begin
     values (coalesce(item->>'name', 'Sin nombre'), item->>'control', coalesce(item->>'email',''), coalesce(item->>'career',''),
       coalesce(item->>'group',''), coalesce(item->>'subject',''), coalesce(item->>'professor',''),
       nullif(item->>'start','')::time, nullif(item->>'end',''),
-      case when coalesce(item->>'pin','') <> '' then crypt(item->>'pin', gen_salt('bf')) else null end)
+      case when coalesce(item->>'pin','') <> '' then extensions.crypt(item->>'pin', extensions.gen_salt('bf')) else null end)
     on conflict (control) do update set name = excluded.name, email = excluded.email, career = excluded.career,
       group_name = excluded.group_name, subject = excluded.subject, professor = excluded.professor,
       start_time = excluded.start_time, end_time = excluded.end_time,
