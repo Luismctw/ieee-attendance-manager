@@ -28,6 +28,7 @@ type Student = {
   professor?: string;
   start?: string;
   end?: string;
+  pin?: string;
 };
 
 const MEETINGS_KEY = "ieee-attendance-meetings";
@@ -74,13 +75,36 @@ export function AdminLogin() {
   );
 }
 
+export function StudentLogin() {
+  const [control, setControl] = useState("");
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setLoading(true);
+    setError("");
+    const response = await fetch("/api/auth/student/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ control, pin }) });
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    setLoading(false);
+    if (!response.ok) {
+      setError(result.error ?? "No se pudo iniciar sesión.");
+      return;
+    }
+    window.location.reload();
+  }
+
+  return <main className="min-h-screen bg-slate-950 text-slate-100"><div className="mx-auto flex min-h-screen max-w-md items-center px-4 py-12"><form onSubmit={submit} className="w-full rounded-3xl border border-slate-800 bg-slate-900 p-8 shadow-2xl"><Link href="/" className="text-xs font-medium uppercase tracking-[0.32em] text-cyan-300">IEEE Attendance Manager</Link><h1 className="mt-6 text-3xl font-semibold text-white">Acceso de alumno</h1><p className="mt-3 text-sm leading-6 text-slate-400">Usa tu número de control y el PIN personal asignado.</p><label className="mt-8 block text-sm text-slate-300">Número de control<input required value={control} onChange={(event) => setControl(event.target.value.trim())} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white" /></label><label className="mt-4 block text-sm text-slate-300">PIN personal<input required inputMode="numeric" type="password" maxLength={12} value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-4 py-3 text-white" /></label>{error && <p className="mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>}<button disabled={loading} className="mt-6 w-full rounded-xl bg-cyan-500 px-4 py-3 font-semibold text-slate-950 disabled:opacity-50">{loading ? "Validando..." : "Iniciar sesión"}</button></form></div></main>;
+}
+
 export function Shell({ role, children }: { role: "student" | "admin"; children: React.ReactNode }) {
   const [loggingOut, setLoggingOut] = useState(false);
   const router = useRouter();
 
   async function logout() {
     setLoggingOut(true);
-    await fetch("/api/admin/logout", { method: "POST" });
+    await fetch(role === "student" ? "/api/auth/student/logout" : "/api/admin/logout", { method: "POST" });
     router.push("/");
   }
 
@@ -116,7 +140,7 @@ export function StudentDashboard() {
     if (!supabase) return;
     void Promise.all([
       supabase.from("meetings").select("*").order("meeting_date", { ascending: true }),
-      supabase.from("students").select("*").order("name", { ascending: true }),
+      supabase.from("students").select("id,name,control,email,career,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }),
     ]).then(([meetingResult, studentResult]) => {
       if (!meetingResult.error) setCloudMeetings((meetingResult.data as DatabaseMeeting[]).map(fromDatabaseMeeting));
       if (!studentResult.error) setCloudStudents((studentResult.data as DatabaseStudent[]).map(fromDatabaseStudent));
@@ -209,7 +233,7 @@ export function AdminDashboard() {
     void supabase.from("meetings").select("*").order("meeting_date", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setMeetings((data as DatabaseMeeting[]).map(fromDatabaseMeeting));
     });
-    void supabase.from("students").select("*").order("name", { ascending: true }).then(({ data, error }) => {
+    void supabase.from("students").select("id,name,control,email,career,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setStudents((data as DatabaseStudent[]).map(fromDatabaseStudent));
     });
     void supabase.from("attendances").select("id", { count: "exact", head: true }).then(({ count }) => setAttendanceCount(count ?? 0));
@@ -286,8 +310,8 @@ export function AdminDashboard() {
     setStudents(next);
     writeStorage(STUDENTS_KEY, next);
     if (supabase) {
-      const { error } = await supabase.from("students").upsert(preview.map(toDatabaseStudent), { onConflict: "control" });
-      if (error) notify(`Importación local completada; Supabase respondió: ${error.message}`);
+      const response = await fetch("/api/admin/students/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ students: preview }) });
+      if (!response.ok) notify("Importación local completada, pero no se pudo sincronizar el padrón.");
     }
     await loadOverview();
     setPreview([]);
@@ -363,7 +387,7 @@ function ImportModal({ rows, onCancel, onConfirm }: { rows: Student[]; onCancel:
 
 function normalizeStudent(row: Record<string, unknown>): Student {
   const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""), String(value ?? "").trim()]));
-  return { name: pick(normalized, ["nombre", "nombrecompleto", "alumno", "name"]), control: pick(normalized, ["control", "numerodecontrol", "nocontrol", "matricula"]), email: pick(normalized, ["correo", "email", "correoinstitucional"]), career: pick(normalized, ["carrera", "career"]), group: pick(normalized, ["grupo", "group"]), subject: pick(normalized, ["materia", "subject"]), professor: pick(normalized, ["profesor", "docente", "professor"]), start: pick(normalized, ["horainicio", "inicio", "start"]), end: pick(normalized, ["horafin", "fin", "end"]) };
+  return { name: pick(normalized, ["nombre", "nombrecompleto", "alumno", "name"]), control: pick(normalized, ["control", "numerodecontrol", "nocontrol", "matricula"]), email: pick(normalized, ["correo", "email", "correoinstitucional"]), career: pick(normalized, ["carrera", "career"]), group: pick(normalized, ["grupo", "group"]), subject: pick(normalized, ["materia", "subject"]), professor: pick(normalized, ["profesor", "docente", "professor"]), start: pick(normalized, ["horainicio", "inicio", "start"]), end: pick(normalized, ["horafin", "fin", "end"]), pin: pick(normalized, ["pin", "pinpersonal", "contrasena"]) };
 }
 
 function pick(row: Record<string, string>, keys: string[]) {
@@ -415,20 +439,6 @@ function toDatabaseMeeting(meeting: Meeting): DatabaseMeeting {
     place: meeting.place,
     status: meeting.status,
     qr_data_url: meeting.qrDataUrl ?? null,
-  };
-}
-
-function toDatabaseStudent(student: Student): DatabaseStudent {
-  return {
-    name: student.name || "Sin nombre",
-    control: student.control || `sin-control-${crypto.randomUUID()}`,
-    email: student.email,
-    career: student.career,
-    group_name: student.group,
-    subject: student.subject ?? "",
-    professor: student.professor ?? "",
-    start_time: student.start ?? "",
-    end_time: student.end ?? "",
   };
 }
 

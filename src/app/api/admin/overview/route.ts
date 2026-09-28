@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 
 export async function GET() {
   const session = (await cookies()).get("admin_session")?.value;
-  if (session !== "active") return Response.json({ error: "No autorizado." }, { status: 401 });
-  if (!supabase) return Response.json({ error: "Supabase no está configurado." }, { status: 503 });
+  if (session !== "authenticated") return Response.json({ error: "No autorizado." }, { status: 401 });
+  if (!supabase) return Response.json({ error: "SUPABASE_SERVICE_ROLE_KEY no está configurada." }, { status: 503 });
 
   const [{ data: attendances, error: attendanceError }, { data: justifications, error: justificationError }] = await Promise.all([
     supabase.from("attendances").select("id,meeting_id,student_id,attended_at,meetings(title,meeting_date),students(name,control,group_name)").order("attended_at", { ascending: false }),
@@ -16,8 +16,8 @@ export async function GET() {
 
 export async function PATCH(request: Request) {
   const session = (await cookies()).get("admin_session")?.value;
-  if (session !== "active") return Response.json({ error: "No autorizado." }, { status: 401 });
-  if (!supabase) return Response.json({ error: "Supabase no está configurado." }, { status: 503 });
+  if (session !== "authenticated") return Response.json({ error: "No autorizado." }, { status: 401 });
+  if (!supabase) return Response.json({ error: "SUPABASE_SERVICE_ROLE_KEY no está configurada." }, { status: 503 });
   const body = await request.json().catch(() => null) as { id?: unknown; note?: unknown } | null;
   if (typeof body?.id !== "string" || typeof body.note !== "string") return Response.json({ error: "id y note son obligatorios." }, { status: 400 });
   const { error } = await supabase.from("justifications").update({ note: body.note.trim() }).eq("id", body.id);

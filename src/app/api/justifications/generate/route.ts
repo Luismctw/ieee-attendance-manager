@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
 import { cookies } from "next/headers";
 
 function minutes(time: string) {
@@ -11,7 +11,7 @@ function asTime(total: number) {
 }
 
 export async function POST(request: Request) {
-  if ((await cookies()).get("admin_session")?.value !== "active") return Response.json({ error: "No autorizado." }, { status: 401 });
+  if ((await cookies()).get("admin_session")?.value !== "authenticated") return Response.json({ error: "No autorizado." }, { status: 401 });
   if (!supabase) return Response.json({ error: "Supabase no está configurado." }, { status: 503 });
   const body = await request.json().catch(() => null) as { meetingId?: unknown } | null;
   if (typeof body?.meetingId !== "string") return Response.json({ error: "meetingId es obligatorio." }, { status: 400 });
@@ -25,7 +25,7 @@ export async function POST(request: Request) {
 
   const ids = (attendanceRows ?? []).map((row) => row.student_id);
   if (!ids.length) return Response.json({ created: 0, message: "No hay asistencias registradas." });
-  const { data: students, error: studentsError } = await supabase.from("students").select("*").in("id", ids);
+  const { data: students, error: studentsError } = await supabase.from("students").select("id,name,control,group_name,subject,professor,start_time,end_time").in("id", ids);
   if (studentsError) return Response.json({ error: studentsError.message }, { status: 500 });
 
   const meetingStart = minutes(meeting.start_time);

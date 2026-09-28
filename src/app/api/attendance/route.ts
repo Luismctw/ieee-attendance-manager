@@ -1,4 +1,6 @@
-import { supabase } from "@/lib/supabase";
+import { supabaseAdmin as supabase } from "@/lib/supabase";
+import { cookies } from "next/headers";
+import { hashSessionToken } from "@/lib/student-auth";
 
 function mexicoNow() {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -16,13 +18,17 @@ function mexicoNow() {
 export async function POST(request: Request) {
   if (!supabase) return Response.json({ error: "Supabase no está configurado." }, { status: 503 });
   const body = await request.json().catch(() => null) as { meetingId?: unknown; control?: unknown } | null;
-  if (typeof body?.meetingId !== "string" || typeof body.control !== "string" || !body.control.trim()) {
-    return Response.json({ error: "meetingId y control son obligatorios." }, { status: 400 });
+  if (typeof body?.meetingId !== "string") {
+    return Response.json({ error: "meetingId es obligatorio." }, { status: 400 });
   }
+  const token = (await cookies()).get("student_session")?.value;
+  if (!token) return Response.json({ error: "Debes iniciar sesión como alumno." }, { status: 401 });
+  const { data: session } = await supabase.from("student_sessions").select("student_id,expires_at").eq("token_hash", hashSessionToken(token)).gt("expires_at", new Date().toISOString()).single();
+  if (!session) return Response.json({ error: "La sesión expiró. Inicia sesión nuevamente." }, { status: 401 });
 
   const [{ data: meeting, error: meetingError }, { data: student, error: studentError }] = await Promise.all([
     supabase.from("meetings").select("id,title,meeting_date,start_time,end_time,status").eq("id", body.meetingId).single(),
-    supabase.from("students").select("id,name,control").eq("control", body.control.trim()).single(),
+    supabase.from("students").select("id,name,control").eq("id", session.student_id).single(),
   ]);
   if (meetingError || !meeting) return Response.json({ error: "La junta no existe." }, { status: 404 });
   if (studentError || !student) return Response.json({ error: "El alumno no está en el padrón." }, { status: 404 });

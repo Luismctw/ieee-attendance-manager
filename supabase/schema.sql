@@ -23,6 +23,17 @@ create table if not exists public.students (
   professor text,
   start_time time,
   end_time time,
+  pin_hash text,
+  created_at timestamptz not null default now()
+);
+
+alter table public.students add column if not exists pin_hash text;
+
+create table if not exists public.student_sessions (
+  id uuid primary key default gen_random_uuid(),
+  student_id uuid not null references public.students(id) on delete cascade,
+  token_hash text not null unique,
+  expires_at timestamptz not null,
   created_at timestamptz not null default now()
 );
 
@@ -53,6 +64,7 @@ alter table public.meetings enable row level security;
 alter table public.students enable row level security;
 alter table public.attendances enable row level security;
 alter table public.justifications enable row level security;
+alter table public.student_sessions enable row level security;
 
 create policy "public can read meetings" on public.meetings for select to anon, authenticated using (true);
 create policy "public can create meetings" on public.meetings for insert to anon, authenticated with check (true);
@@ -71,3 +83,5 @@ create policy "public can update justifications" on public.justifications for up
 create index if not exists meetings_date_idx on public.meetings (meeting_date);
 create index if not exists students_control_idx on public.students (control);
 create index if not exists justifications_meeting_idx on public.justifications (meeting_id);
+create index if not exists student_sessions_token_idx on public.student_sessions (token_hash);
+create index if not exists student_sessions_expiry_idx on public.student_sessions (expires_at);
