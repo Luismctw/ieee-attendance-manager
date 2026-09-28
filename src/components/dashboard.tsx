@@ -108,6 +108,9 @@ export function StudentDashboard() {
   const [students] = useState<Student[]>(() => readStorage<Student[]>(STUDENTS_KEY, []));
   const [cloudMeetings, setCloudMeetings] = useState<Meeting[]>([]);
   const [cloudStudents, setCloudStudents] = useState<Student[]>([]);
+  const [control, setControl] = useState("");
+  const [scannerOpen, setScannerOpen] = useState(false);
+  const [attendanceMessage, setAttendanceMessage] = useState("");
 
   useEffect(() => {
     if (!supabase) return;
@@ -125,6 +128,60 @@ export function StudentDashboard() {
   const activeMeeting = availableMeetings.find((meeting) => meeting.status === "active") ?? availableMeetings[0];
   const currentStudent = availableStudents[0];
 
+  async function registerAttendance(meetingId: string) {
+    const student = availableStudents.find((item) => item.control === control.trim()) ?? currentStudent;
+    if (!student) {
+      setAttendanceMessage("Escribe tu número de control antes de registrar asistencia.");
+      return;
+    }
+    if (!supabase) {
+      setAttendanceMessage("Supabase no está configurado.");
+      return;
+    }
+    const { data: studentRow, error: studentError } = await supabase
+      .from("students")
+      .select("id")
+      .eq("control", student.control)
+      .single();
+    if (studentError || !studentRow) {
+      setAttendanceMessage("No encontramos ese número de control en el padrón.");
+      return;
+    }
+    const { error } = await supabase.from("attendances").insert({
+      meeting_id: meetingId,
+      student_id: studentRow.id,
+    });
+    setAttendanceMessage(error?.code === "23505" ? "Esta asistencia ya estaba registrada." : error ? `No se pudo registrar: ${error.message}` : `Asistencia registrada para ${student.name}.`);
+  }
+
+  async function startScanner() {
+    setAttendanceMessage("");
+    setScannerOpen(true);
+    const { Html5Qrcode } = await import("html5-qrcode");
+    const scanner = new Html5Qrcode("student-qr-reader");
+    await scanner.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: { width: 220, height: 220 } },
+      async (decodedText) => {
+        await scanner.stop();
+        setScannerOpen(false);
+        let meetingId = "";
+        try {
+          meetingId = new URL(decodedText).searchParams.get("meeting") ?? "";
+        } catch {
+          setAttendanceMessage("El QR no contiene un enlace válido.");
+          return;
+        }
+        if (!meetingId) {
+          setAttendanceMessage("El QR no corresponde a una junta válida.");
+          return;
+        }
+        await registerAttendance(meetingId);
+      },
+      () => undefined,
+    );
+  }
+
   return (
     <div className="space-y-8">
       <section className="grid gap-5 md:grid-cols-3">
@@ -135,10 +192,11 @@ export function StudentDashboard() {
       <section className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6">
           <div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Registro</p><h2 className="mt-2 text-2xl font-semibold text-white">Escanear asistencia</h2></div><span className="rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1 text-xs text-cyan-200">{activeMeeting ? "QR disponible" : "Sin junta activa"}</span></div>
-          {activeMeeting ? <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr]"><div className="flex items-center justify-center rounded-2xl border border-slate-700 bg-white p-5"><Image src={activeMeeting.qrDataUrl ?? ""} alt="Código QR de asistencia" width={192} height={192} unoptimized /></div><div className="space-y-4"><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Junta disponible</p><p className="mt-2 text-xl font-semibold text-white">{activeMeeting.title}</p><p className="mt-2 text-sm text-slate-300">{activeMeeting.date} · {activeMeeting.start} - {activeMeeting.end} · {activeMeeting.place}</p></div><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Alumno identificado</p><p className="mt-2 font-semibold text-white">{currentStudent?.name ?? "Pendiente de importar padrón"}</p><p className="mt-1 text-sm text-slate-400">{currentStudent?.email ?? "Los alumnos aparecerán al cargar el Excel."}</p></div><button className="rounded-full bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Registrar asistencia</button></div></div> : <EmptyState description="Cuando exista una junta activa, aquí aparecerá su QR para registrar la asistencia." />}</div>
+          {activeMeeting ? <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr]"><div className="flex items-center justify-center rounded-2xl border border-slate-700 bg-white p-5"><Image src={activeMeeting.qrDataUrl ?? ""} alt="Código QR de asistencia" width={192} height={192} unoptimized /></div><div className="space-y-4"><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Junta disponible</p><p className="mt-2 text-xl font-semibold text-white">{activeMeeting.title}</p><p className="mt-2 text-sm text-slate-300">{activeMeeting.date} · {activeMeeting.start} - {activeMeeting.end} · {activeMeeting.place}</p></div><label className="block text-sm text-slate-300">Número de control<input value={control} onChange={(event) => setControl(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Tu número de control" /></label><div className="flex flex-wrap gap-3"><button onClick={startScanner} className="rounded-full bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Abrir cámara y escanear</button><button onClick={() => registerAttendance(activeMeeting.id)} className="rounded-full border border-cyan-500/30 px-5 py-2.5 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/10">Registrar asistencia</button></div>{attendanceMessage && <p role="status" className="rounded-xl bg-slate-950 px-3 py-2 text-sm text-cyan-200">{attendanceMessage}</p>}</div></div> : <EmptyState description="Cuando exista una junta activa, aquí aparecerá su QR para registrar la asistencia." />}</div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Actividad</p><EmptyState description="Tu historial de asistencia aparecerá aquí después del primer registro." /></div>
       </section>
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><EmptyPanel title="Mi asistencia" eyebrow="Historial" description="No hay registros de asistencia todavía." /><EmptyPanel title="Mis clases" eyebrow="Horario" description={currentStudent ? "Tu horario se tomará de los datos importados." : "El horario de clases se cargará desde el archivo de alumnos."} /></section>
+      {scannerOpen && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/90 p-4"><div className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900 p-6"><div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-white">Escanear QR</h2><button onClick={() => setScannerOpen(false)} className="text-2xl text-slate-400">×</button></div><div id="student-qr-reader" className="mt-5 overflow-hidden rounded-2xl bg-white" /><p className="mt-4 text-sm text-slate-400">Permite el acceso a la cámara y apunta al QR de la junta.</p></div></div>}
     </div>
   );
 }
