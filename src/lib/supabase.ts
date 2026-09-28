@@ -30,3 +30,26 @@ export type DatabaseStudent = {
   start_time: string;
   end_time: string;
 };
+
+export type DatabaseAttendance = {
+  id: string;
+  meeting_id: string;
+  student_id: string;
+  attended_at: string;
+  meetings?: { title: string; meeting_date: string } | null;
+  students?: { name: string; control: string; group_name: string | null } | null;
+};
+
+export type DatabaseJustification = {
+  id: string;
+  meeting_id: string;
+  student_id: string;
+  subject: string;
+  group_name: string | null;
+  professor: string | null;
+  overlap_start: string;
+  overlap_end: string;
+  overlap_minutes: number;
+  note: string | null;
+  students?: { name: string; control: string } | null;
+};

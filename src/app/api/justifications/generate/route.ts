@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { cookies } from "next/headers";
 
 function minutes(time: string) {
   const [hours, mins] = time.slice(0, 5).split(":").map(Number);
@@ -10,6 +11,7 @@ function asTime(total: number) {
 }
 
 export async function POST(request: Request) {
+  if ((await cookies()).get("admin_session")?.value !== "active") return Response.json({ error: "No autorizado." }, { status: 401 });
   if (!supabase) return Response.json({ error: "Supabase no está configurado." }, { status: 503 });
   const body = await request.json().catch(() => null) as { meetingId?: unknown } | null;
   if (typeof body?.meetingId !== "string") return Response.json({ error: "meetingId es obligatorio." }, { status: 400 });

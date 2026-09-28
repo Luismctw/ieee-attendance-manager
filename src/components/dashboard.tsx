@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { DatabaseMeeting, DatabaseStudent, supabase } from "@/lib/supabase";
+import { DatabaseAttendance, DatabaseJustification, DatabaseMeeting, DatabaseStudent, supabase } from "@/lib/supabase";
 
 type Meeting = {
   id: string;
@@ -199,6 +199,9 @@ export function AdminDashboard() {
   const [preview, setPreview] = useState<Student[]>([]);
   const [attendanceCount, setAttendanceCount] = useState(0);
   const [justificationCount, setJustificationCount] = useState(0);
+  const [attendances, setAttendances] = useState<DatabaseAttendance[]>([]);
+  const [justifications, setJustifications] = useState<DatabaseJustification[]>([]);
+  const [detailsOpen, setDetailsOpen] = useState<"attendance" | "justifications" | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -211,7 +214,16 @@ export function AdminDashboard() {
     });
     void supabase.from("attendances").select("id", { count: "exact", head: true }).then(({ count }) => setAttendanceCount(count ?? 0));
     void supabase.from("justifications").select("id", { count: "exact", head: true }).then(({ count }) => setJustificationCount(count ?? 0));
+    void loadOverview();
   }, []);
+
+  async function loadOverview() {
+    const response = await fetch("/api/admin/overview");
+    if (!response.ok) return;
+    const data = await response.json() as { attendances?: DatabaseAttendance[]; justifications?: DatabaseJustification[] };
+    setAttendances(data.attendances ?? []);
+    setJustifications(data.justifications ?? []);
+  }
 
   function notify(message: string) {
     setNotice(message);
@@ -221,7 +233,16 @@ export function AdminDashboard() {
   async function createMeeting(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    const meeting: Meeting = { id: crypto.randomUUID(), title: String(data.get("title")), date: String(data.get("date")), start: String(data.get("start")), end: String(data.get("end")), place: String(data.get("place")), status: "active" };
+    const title = String(data.get("title") ?? "").trim();
+    const date = String(data.get("date") ?? "");
+    const start = String(data.get("start") ?? "");
+    const end = String(data.get("end") ?? "");
+    const place = String(data.get("place") ?? "").trim();
+    if (!title || !date || !start || !end || !place || end <= start) {
+      notify("Completa todos los datos y verifica que la hora final sea posterior a la inicial.");
+      return;
+    }
+    const meeting: Meeting = { id: crypto.randomUUID(), title, date, start, end, place, status: "active" };
     meeting.qrDataUrl = await QRCode.toDataURL(`${window.location.origin}/alumno?meeting=${meeting.id}`, { width: 280, margin: 2, color: { dark: "#0f172a", light: "#ffffff" } });
     const next = [meeting, ...meetings.map((item) => ({ ...item, status: "scheduled" as const }))];
     setMeetings(next);
@@ -230,6 +251,7 @@ export function AdminDashboard() {
       const { error } = await supabase.from("meetings").upsert(toDatabaseMeeting(meeting), { onConflict: "id" });
       if (error) notify(`Junta creada localmente; Supabase respondió: ${error.message}`);
     }
+    await loadOverview();
     setMeetingOpen(false);
     notify("Junta creada y QR generado correctamente.");
   }
@@ -237,26 +259,37 @@ export function AdminDashboard() {
   async function handleFile(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-    const { readSheet } = await import("read-excel-file/browser");
-    const rows = await readSheet(file);
+    try {
+      const { readSheet } = await import("read-excel-file/browser");
+      const rows = await readSheet(file);
     const [headerRow = [], ...dataRows] = rows;
     const headers = headerRow.map((header) => String(header ?? ""));
     const parsed = dataRows
       .map((row) => normalizeStudent(Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))))
       .filter((row) => row.name || row.control);
-    setPreview(parsed);
-    setImportOpen(true);
+      if (!parsed.length) {
+        notify("No se encontraron filas válidas. Revisa que el archivo tenga Nombre o Control.");
+        return;
+      }
+      setPreview(parsed);
+      setImportOpen(true);
+    } catch {
+      notify("No se pudo leer el archivo. Usa un Excel .xlsx, .xls o un CSV válido.");
+    }
     if (fileInput.current) fileInput.current.value = "";
   }
 
   async function confirmImport() {
-    const next = [...students, ...preview];
+    const merged = new Map(students.map((student) => [student.control, student]));
+    for (const student of preview) if (student.control) merged.set(student.control, student);
+    const next = [...merged.values()];
     setStudents(next);
     writeStorage(STUDENTS_KEY, next);
     if (supabase) {
       const { error } = await supabase.from("students").upsert(preview.map(toDatabaseStudent), { onConflict: "control" });
       if (error) notify(`Importación local completada; Supabase respondió: ${error.message}`);
     }
+    await loadOverview();
     setPreview([]);
     setImportOpen(false);
     notify(`${next.length} alumnos disponibles en el padrón local.`);
@@ -295,7 +328,8 @@ export function AdminDashboard() {
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Operación</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meetings.length ? <div className="space-y-3">{meetings.map((meeting) => <div key={meeting.id} className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white">{meeting.title}</p><p className="text-sm text-slate-400">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${meeting.status === "active" ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{meeting.status === "active" ? "Activa" : "Programada"}</span></div>)}</div> : <EmptyState description="Crea una junta para generar un QR, activar el registro y comenzar a crecer tu historial." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Datos</p><h2 className="mt-2 text-2xl font-semibold text-white">Padrón de alumnos</h2><p className="mt-3 text-sm leading-6 text-slate-400">Importa el Excel una vez y conserva el padrón en este dispositivo mientras conectamos la base de datos.</p><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /><button onClick={() => fileInput.current?.click()} className="mt-5 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/20">Importar Excel</button>{students.length > 0 && <p className="mt-3 text-xs text-emerald-300">{students.length} registros cargados</p>}</div>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${attendanceCount} asistencias registradas de ${students.length} alumnos.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Actualizar datos" : "Importar Excel"} onAction={() => students.length ? window.location.reload() : fileInput.current?.click()} /></div><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Generación</p><h3 className="mt-2 text-2xl font-semibold text-white">Justificantes</h3><EmptyState description={justificationCount ? `${justificationCount} justificantes guardados.` : "Cruza las asistencias con las materias y horarios importados."} action="Generar justificantes" onAction={generateJustifications} /></div></section>
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${attendanceCount} asistencias registradas de ${students.length} alumnos.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Ver detalle" : "Importar Excel"} onAction={() => students.length ? setDetailsOpen("attendance") : fileInput.current?.click()} /></div><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Generación</p><h3 className="mt-2 text-2xl font-semibold text-white">Justificantes</h3><EmptyState description={justificationCount ? `${justificationCount} justificantes guardados.` : "Cruza las asistencias con las materias y horarios importados."} action={justificationCount ? "Ver e imprimir" : "Generar justificantes"} onAction={() => justificationCount ? setDetailsOpen("justifications") : generateJustifications()} /></div></section>
+      {detailsOpen && <DetailsModal type={detailsOpen} attendances={attendances} justifications={justifications} onClose={() => setDetailsOpen(null)} onSaved={loadOverview} />}
       {meetingOpen && <MeetingModal onClose={() => setMeetingOpen(false)} onSubmit={createMeeting} />}
       {importOpen && <ImportModal rows={preview} onCancel={() => setImportOpen(false)} onConfirm={confirmImport} />}
     </div>
@@ -304,6 +338,23 @@ export function AdminDashboard() {
 
 function MeetingModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return <div className="fixed inset-0 z-20 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={onSubmit} className="w-full max-w-lg rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Nueva junta</p><h2 className="mt-2 text-2xl font-semibold text-white">Configurar reunión</h2></div><button type="button" onClick={onClose} className="text-2xl text-slate-400 hover:text-white">×</button></div><div className="mt-6 grid gap-4 sm:grid-cols-2"><label className="text-sm text-slate-300 sm:col-span-2">Título<input required name="title" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Reunión General IEEE" /></label><label className="text-sm text-slate-300">Fecha<input required name="date" type="date" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Lugar<input required name="place" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Auditorio B" /></label><label className="text-sm text-slate-300">Inicio<input required name="start" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label><label className="text-sm text-slate-300">Fin<input required name="end" type="time" className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /></label></div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancelar</button><button className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Crear junta</button></div></form></div>;
+}
+
+function DetailsModal({ type, attendances, justifications, onClose, onSaved }: { type: "attendance" | "justifications"; attendances: DatabaseAttendance[]; justifications: DatabaseJustification[]; onClose: () => void; onSaved: () => Promise<void> }) {
+  const [saving, setSaving] = useState("");
+
+  async function saveNote(id: string, note: string) {
+    setSaving(id);
+    const response = await fetch("/api/admin/overview", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, note }),
+    });
+    if (response.ok) await onSaved();
+    setSaving("");
+  }
+
+  return <div className="fixed inset-0 z-20 overflow-y-auto bg-slate-950/90 p-4 sm:p-8"><div className="mx-auto max-w-5xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl print:max-w-none print:border-0 print:bg-white print:text-black"><div className="flex items-center justify-between gap-4 print:hidden"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Detalle administrativo</p><h2 className="mt-2 text-2xl font-semibold text-white">{type === "attendance" ? "Asistencias registradas" : "Justificantes generados"}</h2></div><div className="flex gap-2"><button onClick={() => window.print()} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Imprimir / PDF</button><button onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cerrar</button></div></div>{type === "attendance" ? <div className="mt-6 overflow-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-700 text-slate-400"><tr><th className="px-3 py-3">Alumno</th><th className="px-3 py-3">Control</th><th className="px-3 py-3">Junta</th><th className="px-3 py-3">Fecha y hora</th></tr></thead><tbody className="divide-y divide-slate-800">{attendances.map((row) => <tr key={row.id}><td className="px-3 py-3 text-white">{row.students?.name ?? "—"}</td><td className="px-3 py-3 text-slate-300">{row.students?.control ?? "—"}</td><td className="px-3 py-3 text-slate-300">{row.meetings?.title ?? "—"}</td><td className="px-3 py-3 text-slate-300">{new Date(row.attended_at).toLocaleString("es-MX")}</td></tr>)}</tbody></table>{!attendances.length && <p className="py-10 text-center text-slate-400">No hay asistencias registradas.</p>}</div> : <div className="mt-6 overflow-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-700 text-slate-400"><tr><th className="px-3 py-3">Alumno</th><th className="px-3 py-3">Materia</th><th className="px-3 py-3">Grupo / profesor</th><th className="px-3 py-3">Solape</th><th className="px-3 py-3">Nota</th></tr></thead><tbody className="divide-y divide-slate-800">{justifications.map((row) => <tr key={row.id}><td className="px-3 py-3 text-white">{row.students?.name ?? "—"}<span className="block text-xs text-slate-500">{row.students?.control ?? "—"}</span></td><td className="px-3 py-3 text-slate-300">{row.subject}</td><td className="px-3 py-3 text-slate-300">{row.group_name || "—"}<span className="block text-xs text-slate-500">{row.professor || "—"}</span></td><td className="px-3 py-3 text-slate-300">{row.overlap_start.slice(0, 5)} - {row.overlap_end.slice(0, 5)}<span className="block text-xs text-slate-500">{row.overlap_minutes} min</span></td><td className="px-3 py-3"><textarea defaultValue={row.note ?? ""} onBlur={(event) => void saveNote(row.id, event.target.value)} disabled={saving === row.id} className="min-w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200" placeholder="Nota..." /></td></tr>)}</tbody></table>{!justifications.length && <p className="py-10 text-center text-slate-400">No hay justificantes generados.</p>}</div>}</div></div>;
 }
 
 function ImportModal({ rows, onCancel, onConfirm }: { rows: Student[]; onCancel: () => void; onConfirm: () => void }) {
