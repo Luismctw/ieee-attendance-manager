@@ -7,7 +7,7 @@ create table if not exists public.meetings (
   start_time time not null,
   end_time time not null,
   place text not null,
-  status text not null default 'scheduled' check (status in ('active', 'scheduled')),
+  status text not null default 'scheduled' check (status in ('active', 'scheduled', 'closed')),
   qr_data_url text,
   created_at timestamptz not null default now()
 );

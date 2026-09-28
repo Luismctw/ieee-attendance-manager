@@ -1,5 +1,8 @@
 create extension if not exists pgcrypto;
 
+alter table public.meetings drop constraint if exists meetings_status_check;
+alter table public.meetings add constraint meetings_status_check check (status in ('active', 'scheduled', 'closed'));
+
 create table if not exists public.admin_settings (
   id boolean primary key default true check (id),
   pin_hash text not null
@@ -105,6 +108,23 @@ as $$ begin
   update justifications set note = trim(p_note) where id = p_id;
 end; $$;
 
+create or replace function public.admin_close_meeting(p_pin text, p_meeting_id uuid)
+returns void language plpgsql security definer set search_path = public
+as $$ begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  update meetings set status = 'closed' where id = p_meeting_id;
+end; $$;
+
+create or replace function public.admin_set_student_pin(p_pin text, p_control text, p_student_pin text)
+returns void language plpgsql security definer set search_path = public
+as $$ begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  if p_student_pin !~ '^[0-9]{4,12}$' then raise exception 'El PIN debe tener de 4 a 12 dígitos'; end if;
+  update students set pin_hash = extensions.crypt(p_student_pin, extensions.gen_salt('bf'))
+  where control = trim(p_control);
+  if not found then raise exception 'Alumno no encontrado'; end if;
+end; $$;
+
 create or replace function public.admin_generate_justifications(p_pin text, p_meeting_id uuid)
 returns integer language plpgsql security definer set search_path = public
 as $$
@@ -130,3 +150,5 @@ grant execute on function public.admin_import_students(text,jsonb) to anon, auth
 grant execute on function public.admin_overview(text) to anon, authenticated;
 grant execute on function public.admin_update_justification(text,uuid,text) to anon, authenticated;
 grant execute on function public.admin_generate_justifications(text,uuid) to anon, authenticated;
+grant execute on function public.admin_close_meeting(text,uuid) to anon, authenticated;
+grant execute on function public.admin_set_student_pin(text,text,text) to anon, authenticated;

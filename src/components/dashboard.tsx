@@ -14,7 +14,7 @@ type Meeting = {
   start: string;
   end: string;
   place: string;
-  status: "active" | "scheduled";
+  status: "active" | "scheduled" | "closed";
   qrDataUrl?: string;
 };
 
@@ -226,6 +226,8 @@ export function AdminDashboard() {
   const [attendances, setAttendances] = useState<DatabaseAttendance[]>([]);
   const [justifications, setJustifications] = useState<DatabaseJustification[]>([]);
   const [detailsOpen, setDetailsOpen] = useState<"attendance" | "justifications" | null>(null);
+  const [pinStudent, setPinStudent] = useState<Student | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -240,6 +242,28 @@ export function AdminDashboard() {
     void supabase.from("justifications").select("id", { count: "exact", head: true }).then(({ count }) => setJustificationCount(count ?? 0));
     void loadOverview();
   }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    const active = meetings.find((meeting) => meeting.status === "active");
+    if (!active || !supabase) return;
+    const end = new Date(`${active.date}T${active.end}:00`).getTime();
+    if (now < end) return;
+    void fetch("/api/admin/meetings/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId: active.id }),
+    }).then(async (response) => {
+      if (!response.ok) return;
+      setMeetings((current) => current.map((item) => item.id === active.id ? { ...item, status: "closed" } : item));
+      await loadOverview();
+      notify("La junta terminó y fue cerrada automáticamente.");
+    });
+  }, [meetings, now]);
 
   async function loadOverview() {
     const response = await fetch("/api/admin/overview");
@@ -325,6 +349,7 @@ export function AdminDashboard() {
       notify("Primero crea una junta.");
       return;
     }
+
     const response = await fetch("/api/justifications/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -344,16 +369,31 @@ export function AdminDashboard() {
     notify(result.message ?? `${result.created ?? 0} justificantes generados.`);
   }
 
+  async function closeMeeting(meeting: Meeting) {
+    const response = await fetch("/api/admin/meetings/close", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ meetingId: meeting.id }),
+    });
+    if (!response.ok) {
+      notify("No se pudo cerrar la junta.");
+      return;
+    }
+    setMeetings((current) => current.map((item) => item.id === meeting.id ? { ...item, status: "closed" } : item));
+    notify("Junta cerrada. Ya no acepta registros.");
+  }
+
   return (
     <div className="space-y-8">
       {notice && <div role="status" className="fixed right-5 top-5 z-30 max-w-sm rounded-2xl border border-cyan-400/30 bg-slate-900 px-5 py-4 text-sm text-cyan-100 shadow-2xl">{notice}</div>}
       <section className="grid gap-5 md:grid-cols-2 xl:grid-cols-4">{[["Juntas", meetings.length], ["Alumnos", students.length], ["Asistencias", attendanceCount], ["Justificantes", justificationCount]].map(([label, value]) => <div key={String(label)} className="rounded-3xl border border-slate-800 bg-slate-900 p-5"><p className="text-sm text-slate-400">{label}</p><p className="mt-4 text-3xl font-bold text-white">{value}</p><p className="mt-2 text-sm text-slate-500">{Number(value) ? "Información disponible" : "Sin datos cargados"}</p></div>)}</section>
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Operación</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meetings.length ? <div className="space-y-3">{meetings.map((meeting) => <div key={meeting.id} className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white">{meeting.title}</p><p className="text-sm text-slate-400">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p></div><span className={`rounded-full px-2.5 py-1 text-xs ${meeting.status === "active" ? "bg-emerald-500/15 text-emerald-300" : "bg-slate-700 text-slate-300"}`}>{meeting.status === "active" ? "Activa" : "Programada"}</span></div>)}</div> : <EmptyState description="Crea una junta para generar un QR, activar el registro y comenzar a crecer tu historial." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
-        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Datos</p><h2 className="mt-2 text-2xl font-semibold text-white">Padrón de alumnos</h2><p className="mt-3 text-sm leading-6 text-slate-400">Importa el Excel una vez y conserva el padrón en este dispositivo mientras conectamos la base de datos.</p><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /><button onClick={() => fileInput.current?.click()} className="mt-5 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/20">Importar Excel</button>{students.length > 0 && <p className="mt-3 text-xs text-emerald-300">{students.length} registros cargados</p>}</div>
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><div className="mb-6 flex items-center justify-between gap-4"><div><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Operación</p><h2 className="mt-2 text-2xl font-semibold text-white">Juntas</h2></div><button onClick={() => setMeetingOpen(true)} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Nueva junta</button></div>{meetings.length ? <div className="space-y-3">{meetings.map((meeting) => <div key={meeting.id} className="flex flex-col gap-3 rounded-2xl border border-slate-800 bg-slate-950 p-4 sm:flex-row sm:items-center sm:justify-between"><div><p className="font-semibold text-white">{meeting.title}</p><p className="text-sm text-slate-400">{meeting.date} · {meeting.start} - {meeting.end} · {meeting.place}</p><p className="mt-1 text-xs text-cyan-300">{meeting.status === "active" ? `Duración: ${formatDuration(elapsedSeconds(meeting, now))}` : meeting.status === "closed" ? `Duración total: ${formatDuration(elapsedSeconds(meeting, new Date(`${meeting.date}T${meeting.end}:00`).getTime()))}` : "Aún no iniciada"}</p></div><div className="flex items-center gap-2"><span className={`rounded-full px-2.5 py-1 text-xs ${meeting.status === "active" ? "bg-emerald-500/15 text-emerald-300" : meeting.status === "closed" ? "bg-rose-500/15 text-rose-300" : "bg-slate-700 text-slate-300"}`}>{meeting.status === "active" ? "Activa" : meeting.status === "closed" ? "Cerrada" : "Programada"}</span>{meeting.status === "active" && <button onClick={() => void closeMeeting(meeting)} className="rounded-full border border-rose-400/30 px-3 py-1 text-xs text-rose-200">Cerrar</button>}</div></div>)}</div> : <EmptyState description="Crea una junta para generar un QR, activar el registro y comenzar a crecer tu historial." action="Nueva junta" onAction={() => setMeetingOpen(true)} />}</div>
+        <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Datos</p><h2 className="mt-2 text-2xl font-semibold text-white">Padrón de alumnos</h2><p className="mt-3 text-sm leading-6 text-slate-400">Importa el Excel una vez y conserva el padrón en este dispositivo mientras conectamos la base de datos.</p><input ref={fileInput} type="file" accept=".xlsx,.xls,.csv" onChange={handleFile} className="hidden" /><button onClick={() => fileInput.current?.click()} className="mt-5 w-full rounded-xl border border-cyan-500/30 bg-cyan-500/10 px-4 py-3 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/20">Importar Excel</button>{students.length > 0 && <><p className="mt-3 text-xs text-emerald-300">{students.length} registros cargados</p><button onClick={() => setPinStudent(students[0])} className="mt-3 w-full rounded-xl border border-violet-500/30 px-4 py-3 text-sm font-semibold text-violet-200">Administrar PIN de alumno</button></>}</div>
       </section>
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Asistencia</p><h3 className="mt-2 text-2xl font-semibold text-white">Lista de registrados</h3><EmptyState description={students.length ? `${attendanceCount} asistencias registradas de ${students.length} alumnos.` : "El padrón está vacío. Importa el Excel de alumnos para comenzar."} action={students.length ? "Ver detalle" : "Importar Excel"} onAction={() => students.length ? setDetailsOpen("attendance") : fileInput.current?.click()} /></div><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Generación</p><h3 className="mt-2 text-2xl font-semibold text-white">Justificantes</h3><EmptyState description={justificationCount ? `${justificationCount} justificantes guardados.` : "Cruza las asistencias con las materias y horarios importados."} action={justificationCount ? "Ver e imprimir" : "Generar justificantes"} onAction={() => justificationCount ? setDetailsOpen("justifications") : generateJustifications()} /></div></section>
       {detailsOpen && <DetailsModal type={detailsOpen} attendances={attendances} justifications={justifications} onClose={() => setDetailsOpen(null)} onSaved={loadOverview} />}
+      {pinStudent && <StudentPinModal students={students} selected={pinStudent} onClose={() => setPinStudent(null)} onSaved={(student) => { setPinStudent(student); notify("PIN actualizado correctamente."); }} />}
       {meetingOpen && <MeetingModal onClose={() => setMeetingOpen(false)} onSubmit={createMeeting} />}
       {importOpen && <ImportModal rows={preview} onCancel={() => setImportOpen(false)} onConfirm={confirmImport} />}
     </div>
@@ -379,6 +419,44 @@ function DetailsModal({ type, attendances, justifications, onClose, onSaved }: {
   }
 
   return <div className="fixed inset-0 z-20 overflow-y-auto bg-slate-950/90 p-4 sm:p-8"><div className="mx-auto max-w-5xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl print:max-w-none print:border-0 print:bg-white print:text-black"><div className="flex items-center justify-between gap-4 print:hidden"><div><p className="text-xs uppercase tracking-[0.22em] text-cyan-300">Detalle administrativo</p><h2 className="mt-2 text-2xl font-semibold text-white">{type === "attendance" ? "Asistencias registradas" : "Justificantes generados"}</h2></div><div className="flex gap-2"><button onClick={() => window.print()} className="rounded-full bg-cyan-500 px-4 py-2 text-sm font-semibold text-slate-950">Imprimir / PDF</button><button onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cerrar</button></div></div>{type === "attendance" ? <div className="mt-6 overflow-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-700 text-slate-400"><tr><th className="px-3 py-3">Alumno</th><th className="px-3 py-3">Control</th><th className="px-3 py-3">Junta</th><th className="px-3 py-3">Fecha y hora</th></tr></thead><tbody className="divide-y divide-slate-800">{attendances.map((row) => <tr key={row.id}><td className="px-3 py-3 text-white">{row.students?.name ?? "—"}</td><td className="px-3 py-3 text-slate-300">{row.students?.control ?? "—"}</td><td className="px-3 py-3 text-slate-300">{row.meetings?.title ?? "—"}</td><td className="px-3 py-3 text-slate-300">{new Date(row.attended_at).toLocaleString("es-MX")}</td></tr>)}</tbody></table>{!attendances.length && <p className="py-10 text-center text-slate-400">No hay asistencias registradas.</p>}</div> : <div className="mt-6 overflow-auto"><table className="min-w-full text-left text-sm"><thead className="border-b border-slate-700 text-slate-400"><tr><th className="px-3 py-3">Alumno</th><th className="px-3 py-3">Materia</th><th className="px-3 py-3">Grupo / profesor</th><th className="px-3 py-3">Solape</th><th className="px-3 py-3">Nota</th></tr></thead><tbody className="divide-y divide-slate-800">{justifications.map((row) => <tr key={row.id}><td className="px-3 py-3 text-white">{row.students?.name ?? "—"}<span className="block text-xs text-slate-500">{row.students?.control ?? "—"}</span></td><td className="px-3 py-3 text-slate-300">{row.subject}</td><td className="px-3 py-3 text-slate-300">{row.group_name || "—"}<span className="block text-xs text-slate-500">{row.professor || "—"}</span></td><td className="px-3 py-3 text-slate-300">{row.overlap_start.slice(0, 5)} - {row.overlap_end.slice(0, 5)}<span className="block text-xs text-slate-500">{row.overlap_minutes} min</span></td><td className="px-3 py-3"><textarea defaultValue={row.note ?? ""} onBlur={(event) => void saveNote(row.id, event.target.value)} disabled={saving === row.id} className="min-w-48 rounded-lg border border-slate-700 bg-slate-950 px-2 py-1 text-slate-200" placeholder="Nota..." /></td></tr>)}</tbody></table>{!justifications.length && <p className="py-10 text-center text-slate-400">No hay justificantes generados.</p>}</div>}</div></div>;
+}
+
+function StudentPinModal({ students, selected, onClose, onSaved }: { students: Student[]; selected: Student; onClose: () => void; onSaved: (student: Student) => void }) {
+  const [student, setStudent] = useState(selected);
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState("");
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError("");
+    const response = await fetch("/api/admin/students/pin", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ control: student.control, pin }),
+    });
+    const result = await response.json().catch(() => ({})) as { error?: string };
+    if (!response.ok) {
+      setError(result.error ?? "No se pudo actualizar el PIN.");
+      return;
+    }
+    onSaved(student);
+  }
+
+  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={submit} className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><div><p className="text-xs uppercase tracking-[0.22em] text-violet-300">Seguridad</p><h2 className="mt-2 text-2xl font-semibold text-white">Administrar PIN</h2></div><button type="button" onClick={onClose} className="text-2xl text-slate-400">×</button></div><label className="mt-6 block text-sm text-slate-300">Alumno<select value={student.control} onChange={(event) => setStudent(students.find((item) => item.control === event.target.value) ?? selected)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-white">{students.filter((item) => item.control).map((item) => <option key={item.control} value={item.control}>{item.name} · {item.control}</option>)}</select></label><label className="mt-4 block text-sm text-slate-300">Nuevo PIN<input required minLength={4} maxLength={12} inputMode="numeric" value={pin} onChange={(event) => setPin(event.target.value.replace(/\D/g, ""))} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-3 text-white" placeholder="4 a 12 dígitos" /></label>{error && <p className="mt-3 rounded-xl bg-rose-500/10 px-3 py-2 text-sm text-rose-300">{error}</p>}<div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-sm text-slate-300">Cancelar</button><button className="rounded-full bg-violet-500 px-4 py-2 text-sm font-semibold text-white">Guardar PIN</button></div></form></div>;
+}
+
+function elapsedSeconds(meeting: Meeting, now: number) {
+  const start = new Date(`${meeting.date}T${meeting.start}:00`).getTime();
+  const end = new Date(`${meeting.date}T${meeting.end}:00`).getTime();
+  return Math.max(0, Math.min(now, end) - start) / 1000;
+}
+
+function formatDuration(totalSeconds: number) {
+  const total = Math.floor(totalSeconds);
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
 function ImportModal({ rows, onCancel, onConfirm }: { rows: Student[]; onCancel: () => void; onConfirm: () => void }) {
