@@ -27,7 +27,6 @@ El PIN local se configura en `.env.local`:
 ADMIN_PIN=7551
 NEXT_PUBLIC_SUPABASE_URL=https://tu-proyecto.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-publica
-SUPABASE_SERVICE_ROLE_KEY=tu-clave-privada-solo-en-servidor
 ```
 
 ## Activar la base de datos
@@ -36,4 +35,4 @@ Abre el proyecto de Supabase, entra en **SQL Editor**, pega el contenido de [`su
 
 ## Siguiente etapa de crecimiento
 
-La interfaz ya separa la experiencia de alumno y administración, valida la asistencia en una Route Handler, genera justificantes con solape de horarios y permite imprimirlos. La autenticación de alumnos usa sesiones propias con control + PIN y las operaciones sensibles del servidor requieren `SUPABASE_SERVICE_ROLE_KEY`, que nunca debe exponerse al navegador.
+La interfaz ya separa la experiencia de alumno y administración, valida la asistencia en una Route Handler, genera justificantes con solape de horarios y permite imprimirlos. La autenticación de alumnos usa sesiones propias con control + PIN. Para el plan gratuito, ejecuta [`supabase/free-plan-security.sql`](./supabase/free-plan-security.sql) después del esquema principal: las operaciones sensibles se realizan mediante funciones SQL protegidas y no requieren una service role key en Vercel. El script inicializa el PIN administrador `7551`; si lo cambias, actualiza también el valor de `admin_settings` en Supabase.
