@@ -12,6 +12,7 @@ Aplicación web para registrar asistencia a juntas IEEE mediante QR y preparar j
 - Los alumnos inician sesión con número de control y PIN personal; el Excel puede incluir una columna `PIN`, que se almacena únicamente como hash.
 - Los horarios del Excel aceptan `HH:MM`, `HH.MM`, formato AM/PM y valores decimales de Excel; los valores imposibles se dejan vacíos para evitar solapes falsos.
 - El reporte imprimible acepta `NEXT_PUBLIC_ORGANIZATION_NAME`, `NEXT_PUBLIC_ORGANIZATION_SUBTITLE` y `NEXT_PUBLIC_ORGANIZATION_LOGO_URL` para personalizar los datos y el logotipo.
+- Los logotipos oficiales proporcionados están incluidos en `public/logos/` y se usan automáticamente en la cabecera de los reportes: IEEE, IEEE Iztapalapa III y TecNM.
 - La asistencia se valida en servidor: junta activa, fecha/hora de México, alumno existente y duplicados.
 - El panel administrativo consulta contadores reales y puede generar justificantes cruzando la asistencia con los horarios importados.
 - El detalle administrativo muestra asistentes y justificantes reales; estos últimos permiten editar notas e imprimir/guardar como PDF desde el navegador.
