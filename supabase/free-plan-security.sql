@@ -167,6 +167,23 @@ as $$ begin
   update meetings set status=p_status where id=p_meeting_id;
 end; $$;
 
+create or replace function public.admin_delete_meeting(p_pin text, p_meeting_id uuid)
+returns void language plpgsql security definer set search_path = public
+as $$
+declare meeting_row meetings%rowtype;
+begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  select * into meeting_row from meetings where id = p_meeting_id;
+  if not found then raise exception 'Junta no encontrada'; end if;
+  if meeting_row.status not in ('scheduled', 'cancelled') then
+    raise exception 'Solo se pueden eliminar juntas programadas o canceladas';
+  end if;
+  if exists (select 1 from attendances where meeting_id = p_meeting_id) then
+    raise exception 'No se puede eliminar una junta con asistencias';
+  end if;
+  delete from meetings where id = p_meeting_id;
+end; $$;
+
 create or replace function public.admin_generate_justifications(p_pin text, p_meeting_id uuid)
 returns integer language plpgsql security definer set search_path = public
 as $$
@@ -198,3 +215,4 @@ grant execute on function public.admin_set_student_pin(text,text,text) to anon, 
 grant execute on function public.admin_upsert_student(text,jsonb) to anon, authenticated;
 grant execute on function public.admin_delete_student(text,text) to anon, authenticated;
 grant execute on function public.admin_set_meeting_status(text,uuid,text) to anon, authenticated;
+grant execute on function public.admin_delete_meeting(text,uuid) to anon, authenticated;
