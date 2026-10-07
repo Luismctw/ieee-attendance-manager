@@ -330,7 +330,12 @@ export function AdminDashboard() {
     if (!file) return;
     try {
       const { readSheet } = await import("read-excel-file/browser");
-      const rows = await readSheet(file);
+      let rows;
+      try {
+        rows = await readSheet(file, "IMPORTAR_ALUMNOS");
+      } catch {
+        rows = await readSheet(file);
+      }
     const [headerRow = [], ...dataRows] = rows;
     const headers = headerRow.map((header) => String(header ?? ""));
     const parsed = dataRows
@@ -354,15 +359,19 @@ export function AdminDashboard() {
   }
 
   async function confirmImport() {
+    if (supabase) {
+      const response = await fetch("/api/admin/students/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ students: preview }) });
+      if (!response.ok) {
+        const result = await response.json().catch(() => ({})) as { error?: string };
+        notify(result.error ?? "No se pudo sincronizar el padrón con Supabase.");
+        return;
+      }
+    }
     const merged = new Map(students.map((student) => [student.control, student]));
     for (const student of preview) if (student.control) merged.set(student.control, student);
     const next = [...merged.values()];
     setStudents(next);
     writeStorage(STUDENTS_KEY, next);
-    if (supabase) {
-      const response = await fetch("/api/admin/students/import", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ students: preview }) });
-      if (!response.ok) notify("Importación local completada, pero no se pudo sincronizar el padrón.");
-    }
     await loadOverview();
     setPreview([]);
     setImportOpen(false);
