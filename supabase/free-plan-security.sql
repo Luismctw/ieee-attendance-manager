@@ -146,7 +146,7 @@ as $$ begin
     career=coalesce(p_student->>'career',''), semester=coalesce(nullif(p_student->>'semester',''), semester),
     whatsapp=coalesce(nullif(p_student->>'whatsapp',''), whatsapp), group_name=coalesce(p_student->>'group',''),
     subject=coalesce(p_student->>'subject',''), professor=coalesce(p_student->>'professor',''),
-    start_time=nullif(p_student->>'start','')::time, end_time=nullif(p_student->>'end','')
+    start_time=nullif(p_student->>'start','')::time, end_time=nullif(p_student->>'end','')::time
   where control=trim(p_student->>'control');
   if not found then raise exception 'Alumno no encontrado'; end if;
 end; $$;
