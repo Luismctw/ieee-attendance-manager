@@ -272,8 +272,8 @@ export function AdminDashboard() {
   useEffect(() => {
     const active = meetings.find((meeting) => meeting.status === "active");
     if (!active || !supabase) return;
-    const end = new Date(`${active.date}T${active.end}:00`).getTime();
-    if (now < end) return;
+    const mexicoNow = getMexicoDateTime();
+    if (active.date > mexicoNow.date || (active.date === mexicoNow.date && mexicoNow.time < active.end)) return;
     void fetch("/api/admin/meetings/close", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -555,6 +555,7 @@ function normalizeTime(value: string) {
     const total = Math.round(numeric * 24 * 60);
     return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
   }
+
   const match = value.match(/^(\d{1,2})[:.](\d{2})(?:\s*([ap])\.?m\.?)?$/i);
   if (!match) return "";
   let hour = Number(match[1]);
@@ -563,6 +564,23 @@ function normalizeTime(value: string) {
   if (match[3]) hour = (hour % 12) + (match[3].toLowerCase() === "p" ? 12 : 0);
   if (hour > 23) return "";
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+function getMexicoDateTime() {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Mexico_City",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const values = Object.fromEntries(parts.filter((part) => part.type !== "literal").map((part) => [part.type, part.value]));
+  return {
+    date: `${values.year}-${values.month}-${values.day}`,
+    time: `${values.hour}:${values.minute}`,
+  };
 }
 
 function pick(row: Record<string, string>, keys: string[]) {
