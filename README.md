@@ -10,6 +10,8 @@ Aplicación web para registrar asistencia a juntas IEEE mediante QR y preparar j
 - El padrón y las juntas se guardan temporalmente en `localStorage` como respaldo; con las variables de Supabase configuradas también se sincronizan con PostgreSQL.
 - La importación acepta `.xlsx`, `.xls` y `.csv`, muestra una vista previa y normaliza columnas comunes como `Nombre`, `Control`, `Correo`, `Carrera`, `Grupo`, `Materia`, `Profesor`, `Hora inicio` y `Hora fin`.
 - Los alumnos inician sesión con número de control y PIN personal; el Excel puede incluir una columna `PIN`, que se almacena únicamente como hash.
+- El formato recomendado para el padrón es `Nombre completo`, `Número de control`, `PIN` (o `PIN temporal`), `Correo`, `Carrera`, `Semestre`, `WhatsApp` y `Grupo`. Las filas sin nombre o control se rechazan y los controles duplicados se bloquean antes de importar.
+- `Semestre` y `WhatsApp` se conservan en Supabase para el directorio administrativo; los teléfonos y PIN no deben publicarse en reportes.
 - Los horarios del Excel aceptan `HH:MM`, `HH.MM`, formato AM/PM y valores decimales de Excel; los valores imposibles se dejan vacíos para evitar solapes falsos.
 - El reporte imprimible acepta `NEXT_PUBLIC_ORGANIZATION_NAME`, `NEXT_PUBLIC_ORGANIZATION_SUBTITLE` y `NEXT_PUBLIC_ORGANIZATION_LOGO_URL` para personalizar los datos y el logotipo.
 - Los logotipos oficiales proporcionados están incluidos en `public/logos/` y se usan automáticamente en la cabecera de los reportes: IEEE, IEEE Iztapalapa III y TecNM.
@@ -34,7 +36,7 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=tu-clave-publica
 
 ## Activar la base de datos
 
-Abre el proyecto de Supabase, entra en **SQL Editor**, pega el contenido de [`supabase/schema.sql`](./supabase/schema.sql) y ejecuta el script completo. Después de crear las tablas, la aplicación podrá sincronizar juntas y alumnos entre dispositivos. Las políticas incluidas son adecuadas para esta etapa de prototipo; antes de operar con datos reales se debe añadir autenticación institucional y restringir las políticas por usuario.
+Abre el proyecto de Supabase, entra en **SQL Editor**, pega el contenido de [`supabase/schema.sql`](./supabase/schema.sql) y ejecuta el script completo. El script puede ejecutarse nuevamente: actualiza columnas, índices y políticas sin borrar datos ni tablas. Después de crear las tablas, la aplicación podrá sincronizar juntas y alumnos entre dispositivos. Las políticas incluidas son adecuadas para esta etapa de prototipo; antes de operar con datos reales se debe añadir autenticación institucional y restringir las políticas por usuario.
 
 ## Siguiente etapa de crecimiento
 

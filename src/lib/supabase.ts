@@ -25,6 +25,8 @@ export type DatabaseStudent = {
   control: string;
   email: string;
   career: string;
+  semester?: string | null;
+  whatsapp?: string | null;
   group_name: string;
   subject: string;
   professor: string;

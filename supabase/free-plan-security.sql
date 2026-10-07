@@ -85,13 +85,15 @@ declare item jsonb; total integer := 0;
 begin
   if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
   for item in select * from jsonb_array_elements(p_students) loop
-    insert into students (name, control, email, career, group_name, subject, professor, start_time, end_time, pin_hash)
+    insert into students (name, control, email, career, semester, whatsapp, group_name, subject, professor, start_time, end_time, pin_hash)
     values (coalesce(item->>'name', 'Sin nombre'), item->>'control', coalesce(item->>'email',''), coalesce(item->>'career',''),
+      nullif(item->>'semester',''), nullif(item->>'whatsapp',''),
       coalesce(item->>'group',''), coalesce(item->>'subject',''), coalesce(item->>'professor',''),
-      nullif(item->>'start','')::time, nullif(item->>'end',''),
+      nullif(item->>'start','')::time, nullif(item->>'end','')::time,
       case when coalesce(item->>'pin','') <> '' then extensions.crypt(item->>'pin', extensions.gen_salt('bf')) else null end)
     on conflict (control) do update set name = excluded.name, email = excluded.email, career = excluded.career,
-      group_name = excluded.group_name, subject = excluded.subject, professor = excluded.professor,
+      semester = excluded.semester, whatsapp = excluded.whatsapp, group_name = excluded.group_name,
+      subject = excluded.subject, professor = excluded.professor,
       start_time = excluded.start_time, end_time = excluded.end_time,
       pin_hash = coalesce(excluded.pin_hash, students.pin_hash);
     total := total + 1;
@@ -141,7 +143,8 @@ returns void language plpgsql security definer set search_path = public
 as $$ begin
   if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
   update students set name=coalesce(p_student->>'name',name), email=coalesce(p_student->>'email',''),
-    career=coalesce(p_student->>'career',''), group_name=coalesce(p_student->>'group',''),
+    career=coalesce(p_student->>'career',''), semester=coalesce(nullif(p_student->>'semester',''), semester),
+    whatsapp=coalesce(nullif(p_student->>'whatsapp',''), whatsapp), group_name=coalesce(p_student->>'group',''),
     subject=coalesce(p_student->>'subject',''), professor=coalesce(p_student->>'professor',''),
     start_time=nullif(p_student->>'start','')::time, end_time=nullif(p_student->>'end','')
   where control=trim(p_student->>'control');

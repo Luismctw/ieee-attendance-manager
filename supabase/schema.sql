@@ -18,6 +18,8 @@ create table if not exists public.students (
   control text not null unique,
   email text,
   career text,
+  semester text,
+  whatsapp text,
   group_name text,
   subject text,
   professor text,
@@ -28,6 +30,8 @@ create table if not exists public.students (
 );
 
 alter table public.students add column if not exists pin_hash text;
+alter table public.students add column if not exists semester text;
+alter table public.students add column if not exists whatsapp text;
 
 create table if not exists public.student_sessions (
   id uuid primary key default gen_random_uuid(),
@@ -65,6 +69,18 @@ alter table public.students enable row level security;
 alter table public.attendances enable row level security;
 alter table public.justifications enable row level security;
 alter table public.student_sessions enable row level security;
+
+drop policy if exists "public can read meetings" on public.meetings;
+drop policy if exists "public can create meetings" on public.meetings;
+drop policy if exists "public can update meetings" on public.meetings;
+drop policy if exists "public can read students" on public.students;
+drop policy if exists "public can create students" on public.students;
+drop policy if exists "public can update students" on public.students;
+drop policy if exists "public can read attendances" on public.attendances;
+drop policy if exists "public can create attendances" on public.attendances;
+drop policy if exists "public can read justifications" on public.justifications;
+drop policy if exists "public can create justifications" on public.justifications;
+drop policy if exists "public can update justifications" on public.justifications;
 
 create policy "public can read meetings" on public.meetings for select to anon, authenticated using (true);
 create policy "public can create meetings" on public.meetings for insert to anon, authenticated with check (true);

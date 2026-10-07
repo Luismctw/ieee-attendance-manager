@@ -23,6 +23,8 @@ type Student = {
   control: string;
   email: string;
   career: string;
+  semester?: string;
+  whatsapp?: string;
   group: string;
   subject?: string;
   professor?: string;
@@ -145,7 +147,7 @@ export function StudentDashboard() {
     if (!supabase) return;
     void Promise.all([
       supabase.from("meetings").select("*").order("meeting_date", { ascending: true }),
-      supabase.from("students").select("id,name,control,email,career,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }),
+      supabase.from("students").select("id,name,control,email,career,semester,whatsapp,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }),
     ]).then(([meetingResult, studentResult]) => {
       if (!meetingResult.error) setCloudMeetings((meetingResult.data as DatabaseMeeting[]).map(fromDatabaseMeeting));
       if (!studentResult.error) setCloudStudents((studentResult.data as DatabaseStudent[]).map(fromDatabaseStudent));
@@ -254,7 +256,7 @@ export function AdminDashboard() {
     void supabase.from("meetings").select("*").order("meeting_date", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setMeetings((data as DatabaseMeeting[]).map(fromDatabaseMeeting));
     });
-    void supabase.from("students").select("id,name,control,email,career,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }).then(({ data, error }) => {
+    void supabase.from("students").select("id,name,control,email,career,semester,whatsapp,group_name,subject,professor,start_time,end_time").order("name", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setStudents((data as DatabaseStudent[]).map(fromDatabaseStudent));
     });
     void supabase.from("attendances").select("id", { count: "exact", head: true }).then(({ count }) => setAttendanceCount(count ?? 0));
@@ -333,11 +335,16 @@ export function AdminDashboard() {
     const headers = headerRow.map((header) => String(header ?? ""));
     const parsed = dataRows
       .map((row) => normalizeStudent(Object.fromEntries(headers.map((header, index) => [header, row[index] ?? ""]))))
-      .filter((row) => row.name || row.control);
+      .filter((row) => row.name && row.control);
       if (!parsed.length) {
-        notify("No se encontraron filas válidas. Revisa que el archivo tenga Nombre o Control.");
+        notify("No se encontraron filas válidas. Revisa que cada fila tenga Nombre completo y Número de control.");
         return;
       }
+        const duplicateControls = parsed.map((row) => row.control).filter((control, index, all) => control && all.indexOf(control) !== index);
+        if (duplicateControls.length) {
+          notify(`Hay controles duplicados en el archivo: ${[...new Set(duplicateControls)].join(", ")}.`);
+          return;
+        }
       setPreview(parsed);
       setImportOpen(true);
     } catch {
@@ -478,7 +485,7 @@ function StudentEditModal({ student, onClose, onSaved }: { student: Student; onC
     const response = await fetch("/api/admin/students", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(value) });
     if (response.ok) onSaved(value);
   }
-  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={submit} className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-2xl font-semibold text-white">Editar alumno</h2><button type="button" onClick={onClose} className="text-2xl text-slate-400">×</button></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{(["name","email","career","group","subject","professor","start","end"] as const).map((field) => <label key={field} className="text-sm text-slate-300">{field}<input value={value[field] ?? ""} onChange={(event) => setValue({ ...value, [field]: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white" /></label>)}</div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-slate-300">Cancelar</button><button className="rounded-full bg-cyan-500 px-4 py-2 font-semibold text-slate-950">Guardar</button></div></form></div>;
+  return <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/80 p-4"><form onSubmit={submit} className="w-full max-w-2xl rounded-3xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"><div className="flex items-center justify-between"><h2 className="text-2xl font-semibold text-white">Editar alumno</h2><button type="button" onClick={onClose} className="text-2xl text-slate-400">×</button></div><div className="mt-5 grid gap-3 sm:grid-cols-2">{(["name","email","career","semester","whatsapp","group","subject","professor","start","end"] as const).map((field) => <label key={field} className="text-sm text-slate-300">{field}<input value={value[field] ?? ""} onChange={(event) => setValue({ ...value, [field]: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2 text-white" /></label>)}</div><div className="mt-6 flex justify-end gap-3"><button type="button" onClick={onClose} className="rounded-full border border-slate-700 px-4 py-2 text-slate-300">Cancelar</button><button className="rounded-full bg-cyan-500 px-4 py-2 font-semibold text-slate-950">Guardar</button></div></form></div>;
 }
 
 function StudentPinModal({ students, selected, onClose, onSaved }: { students: Student[]; selected: Student; onClose: () => void; onSaved: (student: Student) => void }) {
@@ -525,7 +532,20 @@ function ImportModal({ rows, onCancel, onConfirm }: { rows: Student[]; onCancel:
 
 function normalizeStudent(row: Record<string, unknown>): Student {
   const normalized = Object.fromEntries(Object.entries(row).map(([key, value]) => [key.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, ""), String(value ?? "").trim()]));
-  return { name: pick(normalized, ["nombre", "nombrecompleto", "alumno", "name"]), control: pick(normalized, ["control", "numerodecontrol", "nocontrol", "matricula"]), email: pick(normalized, ["correo", "email", "correoinstitucional"]), career: pick(normalized, ["carrera", "career"]), group: pick(normalized, ["grupo", "group"]), subject: pick(normalized, ["materia", "subject"]), professor: pick(normalized, ["profesor", "docente", "professor"]), start: normalizeTime(pick(normalized, ["horainicio", "inicio", "start"])), end: normalizeTime(pick(normalized, ["horafin", "fin", "end"])), pin: pick(normalized, ["pin", "pinpersonal", "contrasena"]) };
+  return {
+    name: pick(normalized, ["nombre", "nombrecompleto", "alumno", "name"]),
+    control: pick(normalized, ["control", "numerodecontrol", "nocontrol", "matricula"]),
+    email: pick(normalized, ["correo", "email", "correoinstitucional"]),
+    career: pick(normalized, ["carrera", "career"]),
+    semester: pick(normalized, ["semestre", "semestreactual", "semester"]),
+    whatsapp: pick(normalized, ["whatsapp", "telefonocontacto", "telefon", "telefono"]),
+    group: pick(normalized, ["grupo", "group"]),
+    subject: pick(normalized, ["materia", "subject"]),
+    professor: pick(normalized, ["profesor", "docente", "professor"]),
+    start: normalizeTime(pick(normalized, ["horainicio", "inicio", "start"])),
+    end: normalizeTime(pick(normalized, ["horafin", "fin", "end"])),
+    pin: pick(normalized, ["pin", "pintemporal", "pinpersonal", "contrasena"]),
+  };
 }
 
 function normalizeTime(value: string) {
@@ -576,6 +596,8 @@ function fromDatabaseStudent(row: DatabaseStudent): Student {
     control: row.control,
     email: row.email ?? "",
     career: row.career ?? "",
+    semester: row.semester ?? "",
+    whatsapp: row.whatsapp ?? "",
     group: row.group_name ?? "",
     subject: row.subject ?? "",
     professor: row.professor ?? "",
