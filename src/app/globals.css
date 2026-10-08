@@ -44,6 +44,15 @@ button {
   body {
     background: #fff !important;
     color: #000 !important;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  body:has(.print-report) > main {
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: visible !important;
   }
 
   body * {
@@ -57,9 +66,13 @@ button {
 
   .print-report {
     position: absolute !important;
-    inset: 0 !important;
+    top: 0 !important;
+    left: 0 !important;
     overflow: visible !important;
     width: 100% !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
     max-width: none !important;
     margin: 0 !important;
     padding: 0 !important;
