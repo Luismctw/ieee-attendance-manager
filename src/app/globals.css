@@ -46,6 +46,25 @@ button {
     color: #000 !important;
   }
 
+  body * {
+    visibility: hidden !important;
+  }
+
+  .print-report,
+  .print-report * {
+    visibility: visible !important;
+  }
+
+  .print-report {
+    position: absolute !important;
+    inset: 0 !important;
+    overflow: visible !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
   table {
     border-collapse: collapse;
     width: 100%;
