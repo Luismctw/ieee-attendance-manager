@@ -34,3 +34,37 @@ input,
 button {
   font: inherit;
 }
+
+@media print {
+  @page {
+    size: landscape;
+    margin: 12mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+  }
+
+  thead {
+    display: table-header-group;
+  }
+
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  textarea {
+    border: 0 !important;
+    background: transparent !important;
+    color: #000 !important;
+    resize: none;
+    padding: 0 !important;
+  }
+}
