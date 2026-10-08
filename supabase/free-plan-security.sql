@@ -170,18 +170,22 @@ end; $$;
 create or replace function public.admin_delete_meeting(p_pin text, p_meeting_id uuid)
 returns void language plpgsql security definer set search_path = public
 as $$
-declare meeting_row meetings%rowtype;
 begin
   if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
-  select * into meeting_row from meetings where id = p_meeting_id;
-  if not found then raise exception 'Junta no encontrada'; end if;
-  if meeting_row.status not in ('scheduled', 'cancelled') then
-    raise exception 'Solo se pueden eliminar juntas programadas o canceladas';
-  end if;
-  if exists (select 1 from attendances where meeting_id = p_meeting_id) then
-    raise exception 'No se puede eliminar una junta con asistencias';
-  end if;
   delete from meetings where id = p_meeting_id;
+  if not found then raise exception 'Junta no encontrada'; end if;
+end; $$;
+
+create or replace function public.admin_update_meeting(p_pin text, p_meeting_id uuid, p_title text, p_meeting_date date, p_start_time time, p_end_time time, p_place text)
+returns void language plpgsql security definer set search_path = public
+as $$
+begin
+  if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  if trim(p_title) = '' or trim(p_place) = '' then raise exception 'Título y lugar son obligatorios'; end if;
+  if p_end_time <= p_start_time then raise exception 'La hora final debe ser posterior a la inicial'; end if;
+  update meetings set title=trim(p_title), meeting_date=p_meeting_date, start_time=p_start_time, end_time=p_end_time, place=trim(p_place)
+  where id=p_meeting_id;
+  if not found then raise exception 'Junta no encontrada'; end if;
 end; $$;
 
 create or replace function public.admin_generate_justifications(p_pin text, p_meeting_id uuid)
@@ -216,3 +220,4 @@ grant execute on function public.admin_upsert_student(text,jsonb) to anon, authe
 grant execute on function public.admin_delete_student(text,text) to anon, authenticated;
 grant execute on function public.admin_set_meeting_status(text,uuid,text) to anon, authenticated;
 grant execute on function public.admin_delete_meeting(text,uuid) to anon, authenticated;
+grant execute on function public.admin_update_meeting(text,uuid,text,date,time,time,text) to anon, authenticated;
