@@ -114,8 +114,8 @@ export function Shell({ role, children }: { role: "student" | "admin"; children:
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <main className="print-shell min-h-screen bg-slate-950 text-slate-100">
+      <div className="print-shell-content mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
         <header className="mb-8 rounded-3xl border border-slate-800 bg-slate-900/70 p-5 shadow-2xl shadow-cyan-950/20 backdrop-blur">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div><Link href="/" className="text-xs font-medium uppercase tracking-[0.32em] text-cyan-300">IEEE Attendance Manager</Link><h1 className="mt-3 text-3xl font-semibold text-white">{role === "student" ? "Mi asistencia" : "Panel de administración"}</h1></div>
@@ -211,7 +211,7 @@ export function StudentDashboard() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="admin-dashboard space-y-8">
       <section className="grid gap-5 md:grid-cols-3">
         <StatCard title="Próxima junta" value={activeMeeting?.title ?? "Sin juntas"} subtitle={activeMeeting ? `${activeMeeting.date} · ${activeMeeting.start} - ${activeMeeting.end}` : "El administrador aún no ha creado una junta"} tone="cyan" />
         <StatCard title="Alumnos registrados" value={String(availableStudents.length)} subtitle={availableStudents.length ? "Padrón disponible" : "Carga el Excel para comenzar"} tone="emerald" />

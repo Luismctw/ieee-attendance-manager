@@ -49,10 +49,17 @@ button {
     overflow: visible !important;
   }
 
-  body:has(.print-report) > main {
+  body:has(.print-report) .print-shell,
+  body:has(.print-report) .print-shell-content,
+  body:has(.print-report) .admin-dashboard {
     min-height: 0 !important;
     height: auto !important;
     overflow: visible !important;
+  }
+
+  body:has(.print-report) .print-shell > .print-shell-content > header,
+  body:has(.print-report) .admin-dashboard > :not(.print-report) {
+    display: none !important;
   }
 
   body * {
@@ -65,11 +72,9 @@ button {
   }
 
   .print-report {
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
+    position: static !important;
     overflow: visible !important;
-    width: 100% !important;
+    width: auto !important;
     height: auto !important;
     min-height: 0 !important;
     max-height: none !important;
