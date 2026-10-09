@@ -44,6 +44,13 @@ export type DatabaseAttendance = {
   students?: { name: string; control: string; group_name: string | null } | null;
 };
 
+export type StudentAttendance = {
+  id: string;
+  meeting_id: string;
+  attended_at: string;
+  meetings?: { title: string; meeting_date: string; start_time: string; end_time: string; place: string } | null;
+};
+
 export type DatabaseJustification = {
   id: string;
   meeting_id: string;

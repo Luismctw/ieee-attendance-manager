@@ -61,6 +61,13 @@ begin
   select * into session_row from student_sessions
   where token_hash = encode(extensions.digest(p_token, 'sha256'::text), 'hex') and expires_at > now();
   if not found then raise exception 'Sesión expirada' using errcode = '28000'; end if;
+  update meetings
+  set status = 'closed'
+  where id = p_meeting_id
+    and status = 'active'
+    and (meeting_date < (now() at time zone 'America/Mexico_City')::date
+      or (meeting_date = (now() at time zone 'America/Mexico_City')::date
+        and (now() at time zone 'America/Mexico_City')::time >= end_time));
   select * into meeting_row from meetings where id = p_meeting_id;
   if not found then raise exception 'La junta no existe'; end if;
   if meeting_row.status <> 'active' or meeting_row.meeting_date <> (now() at time zone 'America/Mexico_City')::date
@@ -71,6 +78,26 @@ begin
   select * into student_row from students where id = session_row.student_id;
   insert into attendances (meeting_id, student_id) values (p_meeting_id, student_row.id);
   return jsonb_build_object('name', student_row.name, 'control', student_row.control);
+end;
+$$;
+
+create or replace function public.student_attendance_history(p_token text)
+returns jsonb language plpgsql security definer set search_path = public
+as $$
+declare
+  student_id uuid;
+begin
+  select s.student_id into student_id
+  from student_sessions s
+  where s.token_hash = encode(extensions.digest(p_token, 'sha256'::text), 'hex')
+    and s.expires_at > now();
+  if student_id is null then raise exception 'Sesión expirada' using errcode = '28000'; end if;
+  return coalesce((
+    select jsonb_agg(to_jsonb(a) || jsonb_build_object('meetings', to_jsonb(m)) order by a.attended_at desc)
+    from attendances a
+    join meetings m on m.id = a.meeting_id
+    where a.student_id = student_id
+  ), '[]'::jsonb);
 end;
 $$;
 
@@ -107,6 +134,12 @@ returns jsonb language plpgsql security definer set search_path = public
 as $$
 begin
   if not admin_pin_valid(p_pin) then raise exception 'No autorizado' using errcode = '42501'; end if;
+  update meetings
+  set status = 'closed'
+  where status = 'active'
+    and (meeting_date < (now() at time zone 'America/Mexico_City')::date
+      or (meeting_date = (now() at time zone 'America/Mexico_City')::date
+        and (now() at time zone 'America/Mexico_City')::time >= end_time));
   return jsonb_build_object(
     'attendances', coalesce((select jsonb_agg(to_jsonb(a) || jsonb_build_object('meetings', to_jsonb(m), 'students', to_jsonb(s))) from attendances a join meetings m on m.id=a.meeting_id join students s on s.id=a.student_id), '[]'::jsonb),
     'justifications', coalesce((select jsonb_agg(to_jsonb(j) || jsonb_build_object('students', jsonb_build_object('name',s.name,'control',s.control))) from justifications j join students s on s.id=j.student_id), '[]'::jsonb)
@@ -210,6 +243,7 @@ grant execute on function public.student_login(text,text) to anon, authenticated
 grant execute on function public.student_logout(text) to anon, authenticated;
 grant execute on function public.student_change_pin(text,text) to anon, authenticated;
 grant execute on function public.register_student_attendance(text,uuid) to anon, authenticated;
+grant execute on function public.student_attendance_history(text) to anon, authenticated;
 grant execute on function public.admin_import_students(text,jsonb) to anon, authenticated;
 grant execute on function public.admin_overview(text) to anon, authenticated;
 grant execute on function public.admin_update_justification(text,uuid,text) to anon, authenticated;

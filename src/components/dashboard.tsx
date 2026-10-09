@@ -5,7 +5,7 @@ import Image from "next/image";
 import { useRouter } from "next/navigation";
 import QRCode from "qrcode";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
-import { DatabaseAttendance, DatabaseJustification, DatabaseMeeting, DatabaseStudent, supabase } from "@/lib/supabase";
+import { DatabaseAttendance, DatabaseJustification, DatabaseMeeting, DatabaseStudent, StudentAttendance, supabase } from "@/lib/supabase";
 
 type Meeting = {
   id: string;
@@ -140,6 +140,7 @@ export function StudentDashboard() {
   const [control, setControl] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
   const [attendanceMessage, setAttendanceMessage] = useState("");
+  const [studentAttendances, setStudentAttendances] = useState<StudentAttendance[]>([]);
   const [newPin, setNewPin] = useState("");
   const [pinMessage, setPinMessage] = useState("");
 
@@ -151,6 +152,11 @@ export function StudentDashboard() {
     ]).then(([meetingResult, studentResult]) => {
       if (!meetingResult.error) setCloudMeetings((meetingResult.data as DatabaseMeeting[]).map(fromDatabaseMeeting));
       if (!studentResult.error) setCloudStudents((studentResult.data as DatabaseStudent[]).map(fromDatabaseStudent));
+    });
+    void fetch("/api/attendance").then(async (response) => {
+      if (!response.ok) return;
+      const data = await response.json() as { attendances?: StudentAttendance[] };
+      setStudentAttendances(data.attendances ?? []);
     });
   }, []);
 
@@ -172,7 +178,16 @@ export function StudentDashboard() {
       body: JSON.stringify({ meetingId, control: student.control }),
     });
     const result = await response.json().catch(() => ({})) as { error?: string };
-    setAttendanceMessage(response.ok ? `Asistencia registrada para ${student.name}.` : result.error ?? "No se pudo registrar la asistencia.");
+    if (!response.ok) {
+      setAttendanceMessage(result.error ?? "No se pudo registrar la asistencia.");
+      return;
+    }
+    setAttendanceMessage(`Asistencia registrada para ${student.name}.`);
+    const historyResponse = await fetch("/api/attendance");
+    if (historyResponse.ok) {
+      const history = await historyResponse.json() as { attendances?: StudentAttendance[] };
+      setStudentAttendances(history.attendances ?? []);
+    }
   }
 
   async function changeOwnPin() {
@@ -223,7 +238,7 @@ export function StudentDashboard() {
           {activeMeeting ? <div className="grid gap-6 md:grid-cols-[0.7fr_1.3fr]"><div className="flex items-center justify-center rounded-2xl border border-slate-700 bg-white p-5"><Image src={activeMeeting.qrDataUrl ?? ""} alt="Código QR de asistencia" width={192} height={192} unoptimized /></div><div className="space-y-4"><div className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="text-sm text-slate-400">Junta disponible</p><p className="mt-2 text-xl font-semibold text-white">{activeMeeting.title}</p><p className="mt-2 text-sm text-slate-300">{activeMeeting.date} · {activeMeeting.start} - {activeMeeting.end} · {activeMeeting.place}</p></div><label className="block text-sm text-slate-300">Número de control<input value={control} onChange={(event) => setControl(event.target.value)} className="mt-2 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" placeholder="Tu número de control" /></label><div className="flex flex-wrap gap-3"><button onClick={startScanner} className="rounded-full bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-slate-950 hover:bg-cyan-400">Abrir cámara y escanear</button><button onClick={() => registerAttendance(activeMeeting.id)} className="rounded-full border border-cyan-500/30 px-5 py-2.5 text-sm font-semibold text-cyan-100 hover:bg-cyan-500/10">Registrar asistencia</button></div>{attendanceMessage && <p role="status" className="rounded-xl bg-slate-950 px-3 py-2 text-sm text-cyan-200">{attendanceMessage}</p>}</div></div> : <EmptyState description="Cuando exista una junta activa, aquí aparecerá su QR para registrar la asistencia." />}</div>
         <div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Actividad</p><EmptyState description="Tu historial de asistencia aparecerá aquí después del primer registro." /></div>
       </section>
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><EmptyPanel title="Mi asistencia" eyebrow="Historial" description="No hay registros de asistencia todavía." /><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Seguridad</p><h2 className="mt-2 text-2xl font-semibold text-white">Cambiar mi PIN</h2><input value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ""))} maxLength={12} placeholder="Nuevo PIN de 4 a 12 dígitos" className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /><button onClick={() => void changeOwnPin()} className="mt-3 rounded-full bg-violet-500 px-4 py-2 text-sm font-semibold text-white">Guardar PIN</button>{pinMessage && <p className="mt-3 text-sm text-cyan-200">{pinMessage}</p>}</div></section>
+      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]"><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Historial</p><h2 className="mt-2 text-2xl font-semibold text-white">Mi asistencia</h2>{studentAttendances.length ? <div className="mt-5 space-y-3">{studentAttendances.map((row) => <div key={row.id} className="rounded-2xl border border-slate-800 bg-slate-950 p-4"><p className="font-semibold text-white">{row.meetings?.title ?? "Junta"}</p><p className="mt-1 text-sm text-slate-400">{row.meetings?.meeting_date ?? "—"} · {new Date(row.attended_at).toLocaleString("es-MX")}</p></div>)}</div> : <p className="mt-4 text-sm text-slate-400">No hay registros de asistencia todavía.</p>}</div><div className="rounded-3xl border border-slate-800 bg-slate-900 p-6"><p className="text-xs uppercase tracking-[0.22em] text-slate-400">Seguridad</p><h2 className="mt-2 text-2xl font-semibold text-white">Cambiar mi PIN</h2><input value={newPin} onChange={(event) => setNewPin(event.target.value.replace(/\D/g, ""))} maxLength={12} placeholder="Nuevo PIN de 4 a 12 dígitos" className="mt-4 w-full rounded-xl border border-slate-700 bg-slate-950 px-3 py-2.5 text-white" /><button onClick={() => void changeOwnPin()} className="mt-3 rounded-full bg-violet-500 px-4 py-2 text-sm font-semibold text-white">Guardar PIN</button>{pinMessage && <p className="mt-3 text-sm text-cyan-200">{pinMessage}</p>}</div></section>
       {scannerOpen && <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-950/90 p-4"><div className="w-full max-w-md rounded-3xl border border-slate-700 bg-slate-900 p-6"><div className="flex items-center justify-between"><h2 className="text-xl font-semibold text-white">Escanear QR</h2><button onClick={() => setScannerOpen(false)} className="text-2xl text-slate-400">×</button></div><div id="student-qr-reader" className="mt-5 overflow-hidden rounded-2xl bg-white" /><p className="mt-4 text-sm text-slate-400">Permite el acceso a la cámara y apunta al QR de la junta.</p></div></div>}
     </div>
   );
@@ -255,6 +270,7 @@ export function AdminDashboard() {
 
   useEffect(() => {
     if (!supabase) return;
+    const client = supabase;
     void supabase.from("meetings").select("*").order("meeting_date", { ascending: true }).then(({ data, error }) => {
       if (!error && data) setMeetings((data as DatabaseMeeting[]).map(fromDatabaseMeeting));
     });
@@ -264,6 +280,13 @@ export function AdminDashboard() {
     void supabase.from("attendances").select("id", { count: "exact", head: true }).then(({ count }) => setAttendanceCount(count ?? 0));
     void supabase.from("justifications").select("id", { count: "exact", head: true }).then(({ count }) => setJustificationCount(count ?? 0));
     void loadOverview();
+    const refresh = window.setInterval(() => {
+      void loadOverview();
+      void client.from("meetings").select("*").order("meeting_date", { ascending: true }).then(({ data, error }) => {
+        if (!error && data) setMeetings((data as DatabaseMeeting[]).map(fromDatabaseMeeting));
+      });
+    }, 15000);
+    return () => window.clearInterval(refresh);
   }, []);
 
   useEffect(() => {
